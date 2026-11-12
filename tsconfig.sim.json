@@ -1,0 +1,6 @@
+{
+  // The simulation layer must run in a worker, in Node and in tests: no DOM, no three.js.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2023"], "types": [] },
+  "include": ["src/sim/**/*.ts"]
+}
