@@ -10,8 +10,8 @@ const isolation = {
 export default defineConfig({
   base: './',
   plugins: [preact()],
-  server: { port: 5199, strictPort: true, headers: isolation },
-  preview: { port: 5198, strictPort: true, headers: isolation },
+  server: { host: '127.0.0.1', port: 5199, strictPort: true, headers: isolation },
+  preview: { host: '127.0.0.1', port: 5198, strictPort: true, headers: isolation },
   worker: { format: 'es' },
   build: { target: 'esnext', sourcemap: true, chunkSizeWarningLimit: 2000 },
   test: {

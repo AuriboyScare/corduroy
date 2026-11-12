@@ -6,8 +6,8 @@ Read `DEVELOPMENT_STATUS.md` first for the current state. The approved plan is `
 
 ## Commands
 
-- `npm run dev`: Vite dev server on http://localhost:5199 (`?debug=1` exposes `window.__corduroy`, `?gl=1` forces WebGL2)
-- `npm run app`: Electron on the built `dist` (`CORDUROY_DEV_URL=http://localhost:5199 npm run app` for the dev server)
+- `npm run dev`: Vite dev server on http://127.0.0.1:5199 (`?debug=1` exposes `window.__corduroy`, `?gl=1` forces WebGL2)
+- `npm run app`: Electron on the built `dist` (`CORDUROY_DEV_URL=http://127.0.0.1:5199 npm run app` for the dev server)
 - `npm run check:quick`: typecheck + unit tests (the Stop hook runs this)
 - `npm run check`: lint + typecheck + tests + build. Must pass before every commit
 - `npm run test:e2e`: Playwright on installed Chrome and Electron

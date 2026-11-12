@@ -8,7 +8,7 @@ Early development. See [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) for what e
 
 ```
 npm install
-npm run dev        # browser, http://localhost:5199
+npm run dev        # browser, http://127.0.0.1:5199
 npm run build && npm run app   # desktop app (Electron)
 ```
 
