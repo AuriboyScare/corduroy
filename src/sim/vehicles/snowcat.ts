@@ -234,6 +234,11 @@ export class Snowcat {
     return Math.asin(Math.max(-1, Math.min(1, this.body.oy)));
   }
 
+  /** Snow the blade is cutting, kg/s (smoothed). */
+  get cutRate(): number {
+    return this.cutRateKgS;
+  }
+
   get tillerWorking(): boolean {
     return this.tillerPos > 0.95;
   }

@@ -17,7 +17,7 @@ import { generateMountain, runById } from '../sim/terrain/mountain';
 import { PathFollower } from '../sim/vehicles/autopilot';
 import type { SnowcatInput } from '../sim/vehicles/snowcat';
 import { World } from '../sim/world';
-import { MachineAudio } from './audio';
+import { MachineAudio } from './sound/machineAudio';
 import { loadSlot, peekSlot, SaveManager, slotFor } from './saving';
 import { CameraRig, type CameraMode } from './cameraRig';
 import {
@@ -53,6 +53,8 @@ export interface GameDebug {
   apply(command: Command): ReturnType<World['apply']>;
   /** Drives the Kestrel run uphill on autopilot for a number of steps, without rendering. */
   autoGroom(steps: number): void;
+  /** Audio state, for tests. */
+  audio(): { context: string; synth: boolean };
   /** Saves now; resolves true on success. */
   save(): Promise<boolean>;
   /** Runs simulation steps immediately, without rendering. */
@@ -265,6 +267,7 @@ export async function startGame({
     setCamera: (cameraMode) => rig.setMode(cameraMode),
     apply,
     save: () => saves.save(),
+    audio: () => audio.state,
     autoGroom: (steps) => {
       const pilot = new PathFollower(runById(mountain, 'kestrel').line, -1, 0.62);
       for (let i = 0; i < steps && !pilot.done; i++) world.step(pilot.update(world.cat, true));
@@ -409,7 +412,15 @@ export async function startGame({
     const steps = clock.advance(dt);
     for (let s = 0; s < steps; s++) world.step(catInput);
 
-    audio.update(dt, world.cat, catInput);
+    const under = snow.grid.nearest(world.cat.body.px, world.cat.body.pz);
+    audio.update(dt, world.cat, catInput, {
+      camera,
+      inCab: rig.mode === 'cab',
+      // Hardness from the top layer's density, or the consolidated base where the top is thin.
+      snowHardness:
+        snow.top[under]! < 0.03 ? 0.9 : Math.min(1, Math.max(0, (snow.density[under]! - 120) / 330)),
+      altitudeM: mountain.datumAltitudeM + camera.position.y,
+    });
     fleet.sync(world.machines);
     winches.sync(world.machines, fleet);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
