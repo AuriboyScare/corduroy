@@ -46,6 +46,8 @@ const KEYS: [string, string][] = [
   ['R / F', 'Blade up / down'],
   ['T', 'Tiller down and running / up'],
   ['V', 'Cruise control (if fitted)'],
+  ['Y', 'Winch hook / unhook (600W)'],
+  ['[ / ]', 'Winch tension down / up'],
   ['G', 'Garage: machines and upgrades'],
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
@@ -62,7 +64,7 @@ function Notices() {
       {list.map((n) => (
         <div class={`notice${n.bonus ? ' bonus' : ''}`} key={n.id}>
           <span>{n.text}</span>
-          <span class="notice-amount">+{formatMoney(n.amount)}</span>
+          {n.amount !== null && <span class="notice-amount">+{formatMoney(n.amount)}</span>}
         </div>
       ))}
     </div>
@@ -132,6 +134,22 @@ export function Hud() {
                     : 'Down, idle'}
           </span>
         </div>
+        {d.winch && (
+          <div class="row">
+            <span class="label">Winch</span>
+            <span class={`value${d.winch.anchor && d.winch.remainingM < 15 ? ' warn' : ''}`}>
+              {d.winch.anchor
+                ? `${Math.round(d.winch.cableOutM)} m · ${Math.round(d.winch.forceKn)} kN`
+                : 'Not hooked (Y)'}
+            </span>
+          </div>
+        )}
+        {d.winch?.anchor && (
+          <div class="row">
+            <span class="label">{d.winch.remainingM < 15 ? 'Cable end' : 'Tension set'}</span>
+            <span class="value">{Math.round(d.winch.setting * 100)}%</span>
+          </div>
+        )}
         <div class="divider" />
         <Row label="Pitch / roll" value={`${d.pitchDeg.toFixed(0)}° / ${d.rollDeg.toFixed(0)}°`} />
         <Row label="Grip" value={d.grip > 0 ? d.grip.toFixed(2) : 'airborne'} />

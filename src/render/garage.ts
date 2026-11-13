@@ -1,6 +1,5 @@
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type {
-  BufferGeometry} from 'three/webgpu';
+import type { BufferGeometry } from 'three/webgpu';
 import {
   BoxGeometry,
   CanvasTexture,

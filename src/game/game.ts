@@ -6,6 +6,7 @@ import { createGarage } from '../render/garage';
 import { createSnowMaterial } from '../render/snowMaterial';
 import { SurfaceDetailView } from '../render/surfaceDetail';
 import { TerrainView } from '../render/terrainView';
+import { WinchView } from '../render/winchView';
 import type { GameMode } from '../sim/career';
 import { FixedStepClock } from '../sim/clock';
 import type { Command } from '../sim/commands';
@@ -122,6 +123,8 @@ export async function startGame(
   scene.add(garage);
   const fleet = new FleetView();
   scene.add(fleet.group);
+  const winches = new WinchView(mountain, snow);
+  scene.add(winches.group);
   const buildMs = performance.now() - buildStart;
 
   const input = new Input(canvas);
@@ -242,9 +245,13 @@ export async function startGame(
     let list = notices.value.filter((n) => now - n.at < 4500);
     for (const event of world.events) {
       const bonus = !event.label.startsWith('Grooming');
-      const running = !bonus ? list.find((n) => !n.bonus && n.text === event.label) : undefined;
+      const running = !bonus
+        ? list.find((n) => !n.bonus && n.amount !== null && n.text === event.label)
+        : undefined;
       if (running)
-        list = list.map((n) => (n === running ? { ...n, amount: n.amount + event.amount, at: now } : n));
+        list = list.map((n) =>
+          n === running ? { ...n, amount: (n.amount ?? 0) + event.amount, at: now } : n,
+        );
       else
         list = [
           ...list,
@@ -270,6 +277,16 @@ export async function startGame(
       tillerWorking: cat.tillerWorking,
       groomQuality: cat.groomQuality,
       cruiseKmh: controls.cruise === null ? null : controls.cruise * cat.spec.maxForwardMs * 3.6,
+      winch:
+        cat.spec.winchPullN > 0
+          ? {
+              anchor: world.winchAnchorName(world.activeMachine),
+              cableOutM: cat.winchCableOutM,
+              setting: cat.winchSetting,
+              forceKn: cat.winchForceN / 1000,
+              remainingM: cat.winchRemainingM,
+            }
+          : null,
       pitchDeg: (cat.pitch * 180) / Math.PI,
       rollDeg: (cat.roll * 180) / Math.PI,
       grip: cat.grip,
@@ -313,6 +330,23 @@ export async function startGame(
       }
     }
     if (input.wasPressed('Escape')) garageOpen.value = false;
+    if (input.wasPressed('KeyY') && rig.mode !== 'free' && !garageOpen.value) {
+      const machine = world.activeMachine;
+      const result = world.apply({
+        type: 'winch',
+        machine: machine.owned.uid,
+        hook: !machine.vehicle.winchAnchor,
+      });
+      const text = result.ok
+        ? machine.vehicle.winchAnchor
+          ? `Winch hooked to ${world.winchAnchorName(machine)}`
+          : 'Winch unhooked'
+        : result.reason;
+      notices.value = [
+        ...notices.value,
+        { id: noticeId++, text, amount: null, at: performance.now(), bonus: false },
+      ].slice(-5);
+    }
     if (input.wasPressed('KeyC')) rig.cycle();
     if (input.wasPressed('KeyH')) helpVisible.value = !helpVisible.value;
     if (input.wasPressed('KeyM')) audio.muted = !audio.muted;
@@ -324,6 +358,7 @@ export async function startGame(
 
     audio.update(dt, world.cat, catInput);
     fleet.sync(world.machines);
+    winches.sync(world.machines, fleet);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
     rig.update(dt, input, world.cat);
     input.endFrame();

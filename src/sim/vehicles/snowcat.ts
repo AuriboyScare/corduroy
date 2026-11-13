@@ -85,7 +85,28 @@ export interface SnowcatInput {
   bladeLift: number;
   /** Tiller commanded down and running. */
   tillerDown: boolean;
+  /** -1 lowers, 1 raises the winch tension setting. */
+  winchAdjust?: number;
 }
+
+export interface WinchPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/**
+ * Where the cable's pull acts on the frame: the drum, low on the engine deck, in Kestrel 420 body
+ * coordinates (scaled per machine). Pulling from higher up pitches the machine over when the
+ * cable runs out.
+ */
+const WINCH_DRUM = { y: 1.02, z: -1.55 } as const;
+/** Stiffness of the cable once it is fully paid out, N/m. */
+const CABLE_STOP_K = 1.5e5;
+/** The drum brake slips above this multiple of the winch's rated pull. */
+const CABLE_STOP_LIMIT = 2.2;
+/** Over the last stretch of cable the drive interlock slows travel away from the anchor, m. */
+const CABLE_END_RAMP_M = 15;
 
 export const BLADE_MIN_M = -0.3;
 export const BLADE_MAX_M = 0.9;
@@ -122,6 +143,19 @@ export class Snowcat {
   grip = 0;
   /** Quality of the grooming being laid right now, 0..1; 0 when the tiller is not working. */
   groomQuality = 0;
+  /** Anchor the winch cable is hooked to; null when unhooked. */
+  winchAnchor: WinchPoint | null = null;
+  /** Tension setting as a share of the winch's maximum pull. */
+  winchSetting = 0.6;
+  /** Cable paid out, m. */
+  winchCableOutM = 0;
+  /** Pull the cable is exerting, N. */
+  winchForceN = 0;
+  /** Engine power the winch is drawing to reel in, W. */
+  private winchPowerW = 0;
+  /** Cable left on the drum, m; Infinity when unhooked. */
+  winchRemainingM = Infinity;
+  private winchAwayDot = 0;
 
   private springK = 0;
   private springC = 0;
@@ -211,6 +245,7 @@ export class Snowcat {
       Math.min(BLADE_MAX_M, this.bladeHeightM + input.bladeLift * this.spec.bladeRateMs * dt),
     );
     this.tillerPos = clamp01(this.tillerPos + (input.tillerDown ? 1 : -1) * this.spec.tillerRate * dt);
+    if (input.winchAdjust) this.winchSetting = clamp01(this.winchSetting + input.winchAdjust * 0.4 * dt);
 
     const h = dt / SUBSTEPS;
     for (let s = 0; s < SUBSTEPS; s++) this.substep(h, input, snow, obstacles);
@@ -227,12 +262,17 @@ export class Snowcat {
     // Drive: hydrostatic, so each belt chases its commanded speed but the engine can only supply
     // so much power. When traction times belt speed would exceed it, both belts slow in
     // proportion until it fits; the drive bogs down but never runs backwards on its own.
-    const base =
-      input.throttle >= 0 ? input.throttle * spec.maxForwardMs : input.throttle * spec.maxReverseMs;
+    let base = input.throttle >= 0 ? input.throttle * spec.maxForwardMs : input.throttle * spec.maxReverseMs;
+    // Cable-end interlock: travel away from the anchor slows to a stop as the cable runs out.
+    if (this.winchAnchor && base * this.winchAwayDot > 0) {
+      base *= clamp01((this.winchRemainingM - 1) / CABLE_END_RAMP_M);
+    }
     const diff = input.steer * Math.max(1.3, Math.abs(base) * 0.55);
     const available = Math.max(
       0.1,
-      DRIVE_EFFICIENCY * spec.enginePowerW - (this.tillerPos > 0.5 ? spec.tillerPowerW : 0),
+      DRIVE_EFFICIENCY * spec.enginePowerW -
+        (this.tillerPos > 0.5 ? spec.tillerPowerW : 0) -
+        this.winchPowerW,
     );
     let demand = 0;
     for (let side = 0; side < 2; side++) {
@@ -366,6 +406,7 @@ export class Snowcat {
       }
     }
 
+    power += this.pullWinch();
     if (obstacles) this.collide(obstacles);
 
     // Keep the machine on the map.
@@ -387,6 +428,82 @@ export class Snowcat {
     this.groundedContacts = grounded;
     this.sinkM = sink;
     this.grip = grounded > 0 ? gripSum / grounded : 0;
+  }
+
+  /** Hooks the winch cable to an anchor. */
+  hookWinch(anchor: WinchPoint): void {
+    this.winchAnchor = anchor;
+    this.winchCableOutM = Math.hypot(
+      anchor.x - this.body.px,
+      anchor.y - this.body.py,
+      anchor.z - this.body.pz,
+    );
+  }
+
+  unhookWinch(): void {
+    this.winchAnchor = null;
+    this.winchForceN = 0;
+    this.winchPowerW = 0;
+    this.winchRemainingM = Infinity;
+  }
+
+  /** World position of the winch drum, where the cable pulls (result in body.ox, oy, oz). */
+  winchFairlead(): void {
+    const scale = this.spec.bodyLengthM / 8;
+    const b = this.body;
+    b.toWorld(0, WINCH_DRUM.y * scale, WINCH_DRUM.z * scale);
+    b.ox += b.px;
+    b.oy += b.py;
+    b.oz += b.pz;
+  }
+
+  /**
+   * Constant-tension winch: the cable pays out or reels in to hold the set pull toward the
+   * anchor. Reeling in takes engine power; at full length the cable stops the machine.
+   * Returns the engine power drawn, W.
+   */
+  private pullWinch(): number {
+    const anchor = this.winchAnchor;
+    const spec = this.spec;
+    if (!anchor || spec.winchPullN <= 0) {
+      this.winchForceN = 0;
+      this.winchPowerW = 0;
+      return 0;
+    }
+    const b = this.body;
+    this.winchFairlead();
+    const x = b.ox;
+    const y = b.oy;
+    const z = b.oz;
+    let dx = anchor.x - x;
+    let dy = anchor.y - y;
+    let dz = anchor.z - z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 0.5) {
+      this.winchForceN = 0;
+      return 0;
+    }
+    dx /= d;
+    dy /= d;
+    dz /= d;
+    b.pointVelocity(x, y, z);
+    // Speed toward the anchor: positive while the winch reels in.
+    const closing = b.ox * dx + b.oy * dy + b.oz * dz;
+    let tension = this.winchSetting * spec.winchPullN;
+    if (d > spec.winchCableM) {
+      const damping = 0.6 * Math.sqrt(CABLE_STOP_K * spec.massKg);
+      const stop = CABLE_STOP_K * (d - spec.winchCableM) + damping * Math.max(0, -closing);
+      tension = Math.min(CABLE_STOP_LIMIT * spec.winchPullN, Math.max(tension, stop));
+    }
+    this.winchCableOutM = Math.min(d, spec.winchCableM);
+    this.winchRemainingM = spec.winchCableM - d;
+    b.toWorld(0, 0, 1);
+    // Positive when driving forward takes the machine away from the anchor.
+    this.winchAwayDot = -(b.ox * dx + b.oy * dy + b.oz * dz);
+    this.winchForceN = tension;
+    b.applyForceAt(tension * dx, tension * dy, tension * dz, x, y, z);
+    this.winchPowerW = Math.max(0, tension * closing) / DRIVE_EFFICIENCY;
+    return this.winchPowerW;
   }
 
   /** Pushes the hull out of tree trunks with a stiff penalty force. */

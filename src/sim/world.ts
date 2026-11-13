@@ -22,6 +22,8 @@ export const GARAGE_RANGE_M = 45;
 const PARKING_SPACING_M = 11;
 /** Steps between payouts; grooming credit accumulates in between. */
 const PAYOUT_INTERVAL_STEPS = 30;
+/** Height of the ring on a winch anchor post above the ground, m. */
+export const WINCH_POST_HEIGHT_M = 1.6;
 
 /** Tree trunks bucketed on a coarse grid for collision queries. */
 class TreeIndex implements ObstacleQuery {
@@ -114,6 +116,7 @@ export class World {
   readonly runBonusPaid: Uint8Array;
   private readonly trees: TreeIndex | null;
   private readonly credit: Float64Array;
+  private readonly hookedAnchor = new Map<number, string>();
   /** Money owed but below a cent, carried to the next payout. */
   private pendingPay = 0;
   private pendingLabel = '';
@@ -195,6 +198,23 @@ export class World {
         machine.vehicle.applySpec(effectiveSpec(model, machine.owned.levels));
         return OK;
       }
+      case 'winch': {
+        const machine = this.machines.find((m) => m.owned.uid === command.machine);
+        if (!machine) return fail('Unknown machine.');
+        const cat = machine.vehicle;
+        if (!command.hook) {
+          cat.unhookWinch();
+          return OK;
+        }
+        if (cat.spec.winchPullN <= 0) return fail('This machine has no winch.');
+        const anchor = this.nearestAnchor(cat.body.px, cat.body.pz);
+        if (!anchor || anchor.distance > cat.spec.winchCableM - 5) {
+          return fail(`No winch anchor within ${cat.spec.winchCableM.toLocaleString('en-US')} m.`);
+        }
+        cat.hookWinch(anchor.point);
+        this.hookedAnchor.set(machine.owned.uid, anchor.name);
+        return OK;
+      }
       case 'switchMachine': {
         const index = this.machines.findIndex((m) => m.owned.uid === command.machine);
         if (index < 0) return fail('Unknown machine.');
@@ -205,6 +225,25 @@ export class World {
         return OK;
       }
     }
+  }
+
+  /** The anchor nearest a position, with the point the cable hooks onto (the top of the post). */
+  nearestAnchor(
+    x: number,
+    z: number,
+  ): { name: string; point: { x: number; y: number; z: number }; distance: number } | null {
+    let best: { name: string; point: { x: number; y: number; z: number }; distance: number } | null = null;
+    for (const a of this.mountain.winchAnchors) {
+      const y = this.mountain.grid.sample(this.mountain.ground, a.x, a.z) + WINCH_POST_HEIGHT_M;
+      const distance = Math.hypot(a.x - x, a.z - z);
+      if (!best || distance < best.distance) best = { name: a.name, point: { x: a.x, y, z: a.z }, distance };
+    }
+    return best;
+  }
+
+  /** Name of the anchor a machine's winch is hooked to, if any. */
+  winchAnchorName(machine: Machine): string | null {
+    return machine.vehicle.winchAnchor ? (this.hookedAnchor.get(machine.owned.uid) ?? null) : null;
   }
 
   /** Places a newly owned machine in the next free parking bay beside the garage. */

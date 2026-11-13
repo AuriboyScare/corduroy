@@ -6,7 +6,8 @@
 export type Command =
   | { readonly type: 'buyMachine'; readonly model: string }
   | { readonly type: 'buyUpgrade'; readonly machine: number; readonly upgrade: string }
-  | { readonly type: 'switchMachine'; readonly machine: number };
+  | { readonly type: 'switchMachine'; readonly machine: number }
+  | { readonly type: 'winch'; readonly machine: number; readonly hook: boolean };
 
 export type CommandResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 

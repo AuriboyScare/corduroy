@@ -26,6 +26,14 @@ export interface HudData {
   groomQuality: number;
   /** Set speed when cruise control is engaged. */
   cruiseKmh: number | null;
+  /** Winch readout; null for machines without one. */
+  winch: {
+    anchor: string | null;
+    cableOutM: number;
+    setting: number;
+    forceKn: number;
+    remainingM: number;
+  } | null;
   pitchDeg: number;
   rollDeg: number;
   grip: number;
@@ -57,7 +65,8 @@ export const modeMenu = signal<((mode: GameMode) => void) | null>(null);
 export interface Notice {
   id: number;
   text: string;
-  amount: number;
+  /** Money earned; null for plain information. */
+  amount: number | null;
   /** performance.now() when last updated; notices fade after a few seconds. */
   at: number;
   bonus: boolean;

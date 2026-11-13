@@ -5,6 +5,7 @@ import {
   LIFT_PLANS,
   RUN_PLANS,
   SECTION_LENGTH_M,
+  WINCH_ANCHOR_PLANS,
   type Difficulty,
   type LiftKind,
   type RunPlan,
@@ -44,6 +45,13 @@ export interface LiftLine {
   readonly top: { readonly x: number; readonly z: number };
 }
 
+export interface WinchAnchor {
+  readonly id: string;
+  readonly name: string;
+  readonly x: number;
+  readonly z: number;
+}
+
 export interface Mountain {
   readonly name: string;
   readonly seed: number;
@@ -58,6 +66,7 @@ export interface Mountain {
   readonly sectionOf: Uint16Array;
   readonly pisteCellCount: number;
   readonly lifts: readonly LiftLine[];
+  readonly winchAnchors: readonly WinchAnchor[];
   readonly trees: Float32Array;
   readonly treeCount: number;
   /** Where machinery is parked. heading is radians; forward is (sin, 0, cos). */
@@ -464,6 +473,7 @@ export function generateMountain(seed: number, plan: ResortPlan = { runs: RUN_PL
     sectionOf,
     pisteCellCount,
     lifts,
+    winchAnchors: WINCH_ANCHOR_PLANS.map((a) => ({ ...a })),
     trees: Float32Array.from(trees),
     treeCount: trees.length / TREE_STRIDE,
     depot: { x: GARAGE.x, z: GARAGE.z, heading: GARAGE.heading },
@@ -501,6 +511,7 @@ export function createTestSlope(n: number, slopeDeg: number): Mountain {
     sectionOf: new Uint16Array(grid.count).fill(1),
     pisteCellCount: grid.count,
     lifts: [],
+    winchAnchors: [],
     trees: new Float32Array(0),
     treeCount: 0,
     depot: { x: grid.sizeM / 2, z: grid.sizeM / 2, heading: Math.PI },

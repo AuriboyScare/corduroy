@@ -123,3 +123,17 @@ export const GARAGE = { x: 1024, z: 1905, heading: Math.PI } as const;
 
 /** Target length of a run section; each run is split into whole sections near this length. */
 export const SECTION_LENGTH_M = 150;
+
+export interface WinchAnchorPlan {
+  readonly id: string;
+  readonly name: string;
+  readonly x: number;
+  readonly z: number;
+}
+
+/** Winch anchors: steel posts set beside the steep runs for winch groomers to hook onto. */
+export const WINCH_ANCHOR_PLANS: readonly WinchAnchorPlan[] = [
+  { id: 'falcon-top', name: 'Falcon Face top', x: 1518, z: 600 },
+  { id: 'falcon-mid', name: 'Falcon Face mid', x: 1372, z: 1165 },
+  { id: 'kestrel-top', name: 'Kestrel top', x: 1052, z: 470 },
+];

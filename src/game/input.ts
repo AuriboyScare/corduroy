@@ -85,7 +85,13 @@ export class SnowcatControls {
   tillerDown = false;
   /** Latched throttle while cruise control is engaged. */
   cruise: number | null = null;
-  private readonly state: SnowcatInput = { throttle: 0, steer: 0, bladeLift: 0, tillerDown: false };
+  private readonly state: SnowcatInput = {
+    throttle: 0,
+    steer: 0,
+    bladeLift: 0,
+    tillerDown: false,
+    winchAdjust: 0,
+  };
 
   read(input: Input, enabled: boolean, cat: Snowcat): SnowcatInput {
     const s = this.state;
@@ -93,6 +99,7 @@ export class SnowcatControls {
       s.throttle = this.cruise ?? 0;
       s.steer = 0;
       s.bladeLift = 0;
+      s.winchAdjust = 0;
       s.tillerDown = this.tillerDown;
       return s;
     }
@@ -107,6 +114,7 @@ export class SnowcatControls {
     s.throttle = this.cruise !== null && manual <= 0 ? this.cruise : manual;
     s.steer = Math.max(-1, Math.min(1, input.axis('KeyD', 'KeyA') + input.axis('ArrowRight', 'ArrowLeft')));
     s.bladeLift = input.axis('KeyF', 'KeyR');
+    s.winchAdjust = input.axis('BracketLeft', 'BracketRight');
     s.tillerDown = this.tillerDown;
     return s;
   }
