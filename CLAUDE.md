@@ -11,6 +11,8 @@ Read `DEVELOPMENT_STATUS.md` first for the current state. The approved plan is `
 - `npm run check:quick`: typecheck + unit tests (the Stop hook runs this)
 - `npm run check`: lint + typecheck + tests + build. Must pass before every commit
 - `npm run test:e2e`: Playwright on installed Chrome and Electron
+- `node tools/shot.mjs <out.png> [--eval js] [--shots json]`: screenshots of the running dev server
+- `node tools/bench.mjs`: frame pacing in four scenes (dev server must be running)
 
 ## Architecture rules
 

@@ -64,7 +64,8 @@ export const BLADE_MIN_M = -0.3;
 export const BLADE_MAX_M = 0.9;
 const GRAVITY = 9.81;
 const SUBSTEPS = 4;
-const SPRING_SAG_M = 0.05;
+/** How far the bogies deflect under the machine's own weight; also their droop travel. */
+const SPRING_SAG_M = 0.12;
 const BLADE_SAMPLES = 13;
 
 export class Snowcat {
@@ -75,7 +76,7 @@ export class Snowcat {
   /** Distance each belt has travelled, m; drives the cleat animation. */
   readonly trackTravel = new Float64Array(2);
   /** Blade cutting edge above the track underside, m. */
-  bladeHeightM = 0.25;
+  bladeHeightM = 0.4;
   /** Snow carried in front of the blade, kg. */
   bladeLoadKg = 0;
   /** 0 = tiller raised, 1 = on the snow. */
@@ -113,7 +114,7 @@ export class Snowcat {
 
   /** Parks the machine on the snow at a position. */
   place(x: number, z: number, heading: number, snow: Snowpack): void {
-    const y = snow.supportAt(x, z, this.spec.trackCompactionDensity) + this.spec.trackBottomM - SPRING_SAG_M;
+    const y = snow.supportAt(x, z, this.spec.trackCompactionDensity) + this.spec.trackBottomM;
     this.body.reset(x, y, z, heading);
     this.trackSpeed.fill(0);
   }
@@ -172,7 +173,11 @@ export class Snowcat {
     const diff = input.steer * Math.max(1.3, Math.abs(base) * 0.55);
     const over = Math.max(0, this.engineLoad - 1);
     for (let side = 0; side < 2; side++) {
-      const target = base + (side === 0 ? -diff : diff);
+      // The outer belt cannot exceed top speed, so a turn at speed slows the inner belt instead.
+      const target = Math.max(
+        -spec.maxForwardMs,
+        Math.min(spec.maxForwardMs, base + (side === 0 ? -diff : diff)),
+      );
       let u = this.trackSpeed[side]!;
       const step = 3.6 * h * (1 - Math.min(0.9, over * 2));
       u += Math.max(-step, Math.min(step, target - u));
@@ -199,7 +204,9 @@ export class Snowcat {
         const x = b.px + b.ox;
         const y = b.py + b.oy;
         const z = b.pz + b.oz;
-        const support = snow.supportAt(x, z, rhoC);
+        // The bogie hangs SPRING_SAG_M below this point when unloaded, so at rest the track
+        // underside sits exactly on the snow.
+        const support = snow.supportAt(x, z, rhoC) + SPRING_SAG_M;
         if (support <= y) continue;
 
         // Surface normal from the support height gradient.
@@ -237,7 +244,11 @@ export class Snowcat {
         const i = snow.grid.nearest(x, z);
         const top = snow.top[i]!;
         const rho = snow.density[i]!;
-        const mu = top < 0.02 ? (snow.base[i]! > 0.02 ? 0.8 : 0.6) : 0.42 + 0.4 * clamp01((rho - 120) / 280);
+        // Grousers bite into the snow the track has just pressed, so loose powder still gives some
+        // grip; what it costs is the sinkage resistance below.
+        const bitten = Math.max(rho, rhoC * 0.8);
+        const mu =
+          top < 0.02 ? (snow.base[i]! > 0.02 ? 0.8 : 0.6) : 0.42 + 0.4 * clamp01((bitten - 120) / 280);
         const cellSink = rho < rhoC ? top * (1 - rho / rhoC) : 0;
 
         const vLong = pvx * tx + pvy * ty + pvz * tz;

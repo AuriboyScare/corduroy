@@ -5,6 +5,8 @@ import type { CameraMode } from './cameraRig';
 export interface HudData {
   speedKmh: number;
   engineLoad: number;
+  engineRpm: number;
+  muted: boolean;
   bladeHeightCm: number;
   bladeLoadKg: number;
   bladeCapacityKg: number;

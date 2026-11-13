@@ -8,8 +8,10 @@ import { TerrainView } from '../render/terrainView';
 import { FixedStepClock } from '../sim/clock';
 import { Snowpack } from '../sim/snow/snowpack';
 import { generateMountain } from '../sim/terrain/mountain';
+import { PathFollower } from '../sim/vehicles/autopilot';
 import type { SnowcatInput } from '../sim/vehicles/snowcat';
 import { World } from '../sim/world';
+import { MachineAudio } from './audio';
 import { CameraRig, type CameraMode } from './cameraRig';
 import { helpVisible, hud, loadingMessage } from './hudState';
 import { Input, SnowcatControls } from './input';
@@ -25,6 +27,8 @@ export interface GameDebug {
   buildMs: number;
   renderInfo(): { calls: number; triangles: number };
   setCamera(mode: CameraMode): void;
+  /** Drives the piste centreline uphill on autopilot for a number of steps, without rendering. */
+  autoGroom(steps: number): void;
   /** Runs simulation steps immediately, without rendering. */
   fastForward(steps: number, input: SnowcatInput): void;
 }
@@ -71,6 +75,7 @@ export async function startGame(
   const input = new Input(canvas);
   const controls = new SnowcatControls();
   const rig = new CameraRig(camera, snow);
+  const audio = new MachineAudio();
 
   const resize = (): void => {
     // Render at up to roughly 1200 lines; the display's full Retina resolution is not worth its cost.
@@ -93,6 +98,10 @@ export async function startGame(
     buildMs,
     renderInfo: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),
     setCamera: (mode) => rig.setMode(mode),
+    autoGroom: (steps) => {
+      const pilot = new PathFollower(mountain.pisteLine, -1, 0.62);
+      for (let i = 0; i < steps && !pilot.done; i++) world.step(pilot.update(world.cat, true));
+    },
     fastForward: (steps, stepInput) => {
       for (let i = 0; i < steps; i++) world.step(stepInput);
     },
@@ -112,6 +121,8 @@ export async function startGame(
     hud.value = {
       speedKmh: cat.forwardSpeed * 3.6,
       engineLoad: cat.engineLoad,
+      engineRpm: audio.engineRpm,
+      muted: audio.muted,
       bladeHeightCm: cat.bladeHeightM * 100,
       bladeLoadKg: cat.bladeLoadKg,
       bladeCapacityKg: cat.spec.bladeCapacityKg,
@@ -141,12 +152,14 @@ export async function startGame(
 
     if (input.wasPressed('KeyC')) rig.cycle();
     if (input.wasPressed('KeyH')) helpVisible.value = !helpVisible.value;
+    if (input.wasPressed('KeyM')) audio.muted = !audio.muted;
     const driving = rig.mode !== 'free';
     const catInput = debug.autoInput ?? controls.read(input, driving);
     lastInput = catInput;
     const steps = clock.advance(dt);
     for (let s = 0; s < steps; s++) world.step(catInput);
 
+    audio.update(dt, world.cat, catInput);
     catModel.sync(world.cat);
     catModel.setInteriorView(rig.mode === 'cab');
     rig.update(dt, input, world.cat);

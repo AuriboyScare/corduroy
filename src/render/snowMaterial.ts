@@ -126,7 +126,7 @@ export function createSnowMaterial(inputs: SnowMaterialInputs): MeshStandardNode
     .add(mx_noise_float(vec3(xz.mul(0.6), 6.4)).mul(0.1));
   const bare = float(1).sub(smoothstep(0.04, 0.42, depth.add(breakup)));
   // Rock: dark, with tilted strata bands and mottling.
-  const strata = sin(p.y.mul(1.7).add(mx_noise_float(vec3(xz.mul(0.05), 1.1)).mul(9)))
+  const strata = sin(p.y.mul(0.55).add(mx_noise_float(vec3(xz.mul(0.04), 1.1)).mul(7)))
     .mul(0.5)
     .add(0.5);
   const mottle = mx_noise_float(vec3(xz.mul(0.4), p.y.mul(0.4)))
@@ -135,7 +135,7 @@ export function createSnowMaterial(inputs: SnowMaterialInputs): MeshStandardNode
   const rockColor = mix(
     vec3(0.085, 0.082, 0.08),
     vec3(0.2, 0.185, 0.17),
-    strata.mul(0.6).add(mottle.mul(0.4)),
+    strata.mul(0.3).add(mottle.mul(0.7)),
   );
   material.colorNode = mix(snowColor, rockColor, bare);
 

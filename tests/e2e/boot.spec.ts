@@ -73,6 +73,39 @@ test('browser: the snowcat drives, grooms and the HUD follows', async ({ page })
   expect(errors).toEqual([]);
 });
 
+test('browser: keyboard drives the machine and works the implements', async ({ page }) => {
+  await page.goto('/?debug=1');
+  await gameReady(page);
+  const read = () =>
+    page.evaluate(() => {
+      const cat = window.__corduroy!.game!.world.cat;
+      return { z: cat.body.pz, heading: cat.heading, blade: cat.bladeHeightM, tiller: cat.tillerPos };
+    });
+  const before = await read();
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(2500);
+  await page.keyboard.up('KeyW');
+  const driven = await read();
+  expect(before.z - driven.z).toBeGreaterThan(3);
+
+  await page.keyboard.down('KeyA');
+  await page.keyboard.down('KeyF');
+  await page.waitForTimeout(1500);
+  await page.keyboard.up('KeyA');
+  await page.keyboard.up('KeyF');
+  await page.keyboard.press('KeyT');
+  await page.waitForTimeout(1200);
+  const worked = await read();
+  expect(
+    Math.abs(
+      Math.atan2(Math.sin(worked.heading - driven.heading), Math.cos(worked.heading - driven.heading)),
+    ),
+  ).toBeGreaterThan(0.15);
+  expect(worked.blade).toBeLessThan(driven.blade - 0.3);
+  expect(worked.tiller).toBeGreaterThan(0.95);
+  await expect(page.getByTestId('cluster')).toContainText('rpm');
+});
+
 test('browser: cameras switch with the keyboard', async ({ page }) => {
   await page.goto('/?debug=1');
   await gameReady(page);

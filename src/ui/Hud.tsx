@@ -33,6 +33,7 @@ const KEYS: [string, string][] = [
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
   ['Scroll', 'Zoom (chase camera)'],
+  ['M', 'Sound on / off'],
   ['H', 'Show or hide this list'],
 ];
 
@@ -59,8 +60,12 @@ export function Hud() {
           </span>
         </div>
         <div class="row">
-          <span class="label">Engine load</span>
-          <span class="value">{Math.round(Math.min(1.5, d.engineLoad) * 100)}%</span>
+          <span class="label">Engine</span>
+          <span class="value">
+            {Math.round(d.engineRpm / 10) * 10}
+            <span class="unit"> rpm</span> · {Math.round(Math.min(1.5, d.engineLoad) * 100)}
+            <span class="unit">% load</span>
+          </span>
         </div>
         <Bar value={d.engineLoad} />
         <div class="row">
@@ -111,7 +116,10 @@ export function Hud() {
         <Bar value={d.pisteGroomed} warnAt={2} />
         <div class="row small">
           <span class="label">Camera: {CAMERA_LABELS[d.camera]}</span>
-          <span class="label">{d.fps.toFixed(0)} fps</span>
+          <span class="label">
+            {d.muted ? 'Sound off · ' : ''}
+            {d.fps.toFixed(0)} fps
+          </span>
         </div>
       </div>
 

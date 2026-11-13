@@ -101,7 +101,7 @@ describe('Snowcat', () => {
     // A 0.5 m mound across the path ahead (the cat faces -z).
     for (let iz = 100; iz < 104; iz++) for (let ix = 120; ix < 137; ix++) snow.top[ix + iz * n]! += 0.5;
     const mass = snow.totalMassKg();
-    run(world, 1, { ...idle, bladeLift: -1 });
+    run(world, 1.5, { ...idle, bladeLift: -1 });
     run(world, 13, { ...idle, throttle: 0.5 });
     expect(cat.body.pz).toBeLessThan(96);
     expect((snow.totalMassKg() + cat.bladeLoadKg) / mass).toBeCloseTo(1, 5);
