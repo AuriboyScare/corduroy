@@ -660,6 +660,7 @@ export class Snowcat {
           const x = Math.max(0, Math.min(snow.grid.sizeM, b.px + b.ox));
           const z = Math.max(0, Math.min(snow.grid.sizeM, b.pz + b.oz));
           snow.deposit(snow.grid.nearest(x, z), spill / 2, PUSHED_DENSITY);
+          snow.relaxAround(x, z, 3);
         }
         this.bladeLoadKg = spec.bladeCapacityKg;
       }
@@ -673,6 +674,8 @@ export class Snowcat {
         const z = Math.max(0, Math.min(snow.grid.sizeM, b.pz + b.oz));
         snow.deposit(snow.grid.nearest(x, z), share, PUSHED_DENSITY);
       }
+      b.toWorld(0, 0, spec.bladeZ + 0.4);
+      snow.relaxAround(b.px + b.ox, b.pz + b.oz, spec.bladeHalfWidthM + 3);
       this.bladeLoadKg = 0;
     }
     this.cutRateKgS += (cutKg / dt - this.cutRateKgS) * Math.min(1, dt * 6);

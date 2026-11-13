@@ -18,6 +18,7 @@ import {
   Vector3,
   type Material,
 } from 'three/webgpu';
+import { PUSHED_DENSITY } from '../sim/snow/snowpack';
 import type { Snowcat } from '../sim/vehicles/snowcat';
 
 /**
@@ -329,6 +330,44 @@ class Link {
   }
 }
 
+const bermMaterial = new MeshStandardNodeMaterial({ color: 0xe9eef5, roughness: 0.92, metalness: 0 });
+
+/**
+ * A lumpy half-roll of snow, one unit wide (along x) and one unit in radius, resting on y = 0 and
+ * bulging forward (+z): scaled each frame to the volume the blade carries.
+ */
+function bermGeometry(): BufferGeometry {
+  // Parametric half-roll: u runs along the blade, v around the roll from the front (v = 0,
+  // pointing +z) over the top to the back (v = pi). The ends taper shut.
+  const nu = 40;
+  const nv = 14;
+  const position: number[] = [];
+  const index: number[] = [];
+  for (let i = 0; i <= nu; i++) {
+    const u = i / nu - 0.5;
+    const taper = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(u) * 2, 6)));
+    for (let j = 0; j <= nv; j++) {
+      const v = (j / nv) * Math.PI;
+      const lump =
+        1 + 0.1 * Math.sin(u * 37 + v * 3.1) * Math.cos(v * 5 + u * 13) + 0.05 * Math.sin(u * 91 + v * 7);
+      const r = taper * lump;
+      position.push(u, Math.sin(v) * r, Math.cos(v) * r);
+    }
+  }
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const a = i * (nv + 1) + j;
+      const b = a + nv + 1;
+      index.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(position), 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export class SnowcatModel {
   /** Posed from the simulation each frame. */
   readonly group = new Group();
@@ -339,6 +378,8 @@ export class SnowcatModel {
   private readonly bladeHalf: number;
   private readonly tillerHalf: number;
   private readonly winchBoom = new Group();
+  /** The berm of snow the blade is pushing, scaled from the simulated load. */
+  private readonly berm: Mesh;
   private readonly blade = new Group();
   private readonly tiller = new Group();
   private readonly wheels: { mesh: Group; radius: number; side: number }[] = [];
@@ -371,6 +412,10 @@ export class SnowcatModel {
     this.group.add(this.inner);
     this.buildHull();
     if (look.winch) this.buildWinch();
+    this.berm = new Mesh(bermGeometry(), bermMaterial);
+    this.berm.castShadow = true;
+    this.berm.receiveShadow = true;
+    this.berm.visible = false;
     this.buildTracks();
     this.buildBlade();
     this.buildTiller();
@@ -621,6 +666,7 @@ export class SnowcatModel {
     for (const x of [-outer, -0.7, 0.7, outer]) kit.box(dark, 0.1, 0.66, 0.1, x, 0.56, -0.36);
     for (const x of [-outer, -0.7, 0.7, outer]) kit.box(dark, 0.08, 0.08, 0.2, x, 0.56, -0.28);
     kit.build(this.blade);
+    this.blade.add(this.berm);
     this.inner.add(this.blade);
 
     // Lift arms and hydraulic rams between the chassis and the blade frame.
@@ -737,6 +783,18 @@ export class SnowcatModel {
     const scale = this.look.scale;
     this.blade.position.set(0, TRACK_BOTTOM + cat.bladeHeightM / scale, cat.spec.bladeZ / scale);
     this.tiller.rotation.x = 0.42 * (1 - cat.tillerPos);
+
+    // Berm: the carried snow, at pushed density, forms a rough half-roll across the blade face.
+    const volume = cat.bladeLoadKg / PUSHED_DENSITY;
+    if (volume > 0.02) {
+      const width = 2 * cat.spec.bladeHalfWidthM * 0.92;
+      const radius = Math.sqrt((2 * volume) / (Math.PI * width));
+      this.berm.visible = true;
+      this.berm.scale.set(width / scale, radius / scale, (radius * 1.15) / scale);
+      this.berm.position.set(0, 0, 0.25 + (radius * 0.55) / scale);
+    } else {
+      this.berm.visible = false;
+    }
 
     for (const item of this.links) {
       const target = item.onBlade ? this.blade : this.tiller;

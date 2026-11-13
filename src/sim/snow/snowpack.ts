@@ -9,6 +9,9 @@ export const GROOMED_DENSITY = 450;
 /** Density loose snow reaches when pushed and dropped by a blade, kg/m3. */
 export const PUSHED_DENSITY = 380;
 
+/** Steepest slope loose, pushed snow can hold before it slumps (about 38 degrees). */
+export const REPOSE_SLOPE = 0.78;
+
 /** Surface detail is stored in sparse square tiles, allocated where machines have worked. */
 export const TILE_M = 32;
 export const FINE_CELL_M = 0.25;
@@ -241,6 +244,49 @@ export class Snowpack {
     this.density[i] = rho;
     this.setGroomed(i, quality);
     this.touch(i);
+  }
+
+  /**
+   * Lets loose snow slump around (x, z) until no slope between neighbouring cells exceeds the
+   * angle of repose, moving top-layer snow downhill. Only the top layer moves, and mass is
+   * conserved. Call after piling snow up (blade spills and dumps).
+   */
+  relaxAround(x: number, z: number, radiusM: number): void {
+    const grid = this.grid;
+    const n = grid.n;
+    const cell = grid.cellM;
+    const area = cell * cell;
+    const r = Math.ceil(radiusM / cell);
+    const cx = Math.round(x / cell);
+    const cz = Math.round(z / cell);
+    const x0 = Math.max(1, cx - r);
+    const x1 = Math.min(n - 2, cx + r);
+    const z0 = Math.max(1, cz - r);
+    const z1 = Math.min(n - 2, cz + r);
+    const limit = REPOSE_SLOPE * cell;
+    const offsets = [1, -1, n, -n];
+    for (let pass = 0; pass < 24; pass++) {
+      let moved = false;
+      for (let iz = z0; iz <= z1; iz++) {
+        for (let ix = x0; ix <= x1; ix++) {
+          const i = ix + iz * n;
+          for (const d of offsets) {
+            const j = i + d;
+            const drop = this.surface(i) - this.surface(j);
+            if (drop <= limit + 1e-4) continue;
+            // Move half the excess (enough to level that pair to the limit), but only loose snow.
+            const depth = Math.min(this.top[i]!, (drop - limit) / 2);
+            if (depth <= 1e-5) continue;
+            const mass = depth * this.density[i]! * area;
+            this.top[i]! -= depth;
+            this.deposit(j, mass, this.density[i]!);
+            this.touch(i);
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
   }
 
   /** A track ran over the cell: compacts it and spoils any grooming. */

@@ -4,6 +4,8 @@ import { createEnvironment } from '../render/environment';
 import { FleetView } from '../render/fleetView';
 import { createForest } from '../render/forest';
 import { createGarage } from '../render/garage';
+import { MachineEffects } from '../render/machineEffects';
+import { Particles } from '../render/particles';
 import { createSnowMaterial } from '../render/snowMaterial';
 import { SurfaceDetailView } from '../render/surfaceDetail';
 import { TerrainView } from '../render/terrainView';
@@ -47,7 +49,7 @@ export interface GameDebug {
   autoInput: SnowcatInput | null;
   /** Milliseconds spent building the mountain. */
   buildMs: number;
-  renderInfo(): { calls: number; triangles: number };
+  renderInfo(): { calls: number; triangles: number; particles: number };
   setCamera(mode: CameraMode): void;
   /** Applies a command as if the player had made it in the interface. */
   apply(command: Command): ReturnType<World['apply']>;
@@ -170,6 +172,9 @@ export async function startGame({
   scene.add(fleet.group);
   const winches = new WinchView(mountain, snow);
   scene.add(winches.group);
+  const particles = new Particles(5000);
+  scene.add(particles.mesh);
+  const effects = new MachineEffects(particles, snow);
   const buildMs = performance.now() - buildStart;
 
   const input = new Input(canvas);
@@ -263,7 +268,11 @@ export async function startGame({
     frames: 0,
     autoInput: null,
     buildMs,
-    renderInfo: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),
+    renderInfo: () => ({
+      calls: renderer.info.render.drawCalls,
+      triangles: renderer.info.render.triangles,
+      particles: particles.activeCount,
+    }),
     setCamera: (cameraMode) => rig.setMode(cameraMode),
     apply,
     save: () => saves.save(),
@@ -423,6 +432,7 @@ export async function startGame({
     });
     fleet.sync(world.machines);
     winches.sync(world.machines, fleet);
+    effects.update(dt, world.cat);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
     rig.update(dt, input, world.cat);
     input.endFrame();
@@ -431,6 +441,7 @@ export async function startGame({
     detail.update(rig.focus.x, rig.focus.z, now);
     terrain.update(cameraPosition);
     forest.update(cameraPosition);
+    particles.update(dt, camera, snow, 1.2, -0.6);
     environment.update(rig.focus);
     renderer.render(scene, camera);
 
