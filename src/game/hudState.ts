@@ -1,4 +1,5 @@
 import { signal } from '@preact/signals';
+import type { SaveSummary } from '../platform/saveFile';
 import type { GameMode } from '../sim/career';
 import type { Difficulty } from '../sim/resort/layout';
 import type { CameraMode } from './cameraRig';
@@ -59,8 +60,18 @@ export const hud = signal<HudData | null>(null);
 export const loadingMessage = signal<string | null>('Starting');
 export const helpVisible = signal(true);
 
-/** Shown before the world is built, to pick career or sandbox. */
-export const modeMenu = signal<((mode: GameMode) => void) | null>(null);
+export interface StartChoice {
+  mode: GameMode;
+  /** Load the saved game for this mode instead of starting fresh. */
+  resume: boolean;
+}
+
+/** Shown before the world is built, to pick career or sandbox, new or saved. */
+export const modeMenu = signal<{
+  choose: (choice: StartChoice) => void;
+  saves: Partial<Record<GameMode, SaveSummary>>;
+  savingAvailable: boolean;
+} | null>(null);
 
 export interface Notice {
   id: number;

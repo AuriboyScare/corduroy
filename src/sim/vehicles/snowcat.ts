@@ -430,6 +430,55 @@ export class Snowcat {
     this.grip = grounded > 0 ? gripSum / grounded : 0;
   }
 
+  /**
+   * Every value that carries from one step to the next, apart from the rigid body, implement
+   * positions and winch anchor (saved separately). Restoring it makes a loaded world continue
+   * exactly as the saved one would have.
+   */
+  captureDynamics(): number[] {
+    return [
+      this.trackSpeed[0]!,
+      this.trackSpeed[1]!,
+      this.sideForce[0]!,
+      this.sideForce[1]!,
+      this.beltTarget[0]!,
+      this.beltTarget[1]!,
+      this.engineLoad,
+      this.cutRateKgS,
+      this.groundedContacts,
+      this.sinkM,
+      this.grip,
+      this.groomQuality,
+      this.winchCableOutM,
+      this.winchForceN,
+      this.winchPowerW,
+      this.winchRemainingM === Infinity ? -1 : this.winchRemainingM,
+      this.winchAwayDot,
+    ];
+  }
+
+  restoreDynamics(values: readonly number[]): void {
+    if (values.length !== 17) throw new Error('saved machine state has the wrong length');
+    const v = values as number[];
+    this.trackSpeed[0] = v[0]!;
+    this.trackSpeed[1] = v[1]!;
+    this.sideForce[0] = v[2]!;
+    this.sideForce[1] = v[3]!;
+    this.beltTarget[0] = v[4]!;
+    this.beltTarget[1] = v[5]!;
+    this.engineLoad = v[6]!;
+    this.cutRateKgS = v[7]!;
+    this.groundedContacts = v[8]!;
+    this.sinkM = v[9]!;
+    this.grip = v[10]!;
+    this.groomQuality = v[11]!;
+    this.winchCableOutM = v[12]!;
+    this.winchForceN = v[13]!;
+    this.winchPowerW = v[14]!;
+    this.winchRemainingM = v[15]! < 0 ? Infinity : v[15]!;
+    this.winchAwayDot = v[16]!;
+  }
+
   /** Hooks the winch cable to an anchor. */
   hookWinch(anchor: WinchPoint): void {
     this.winchAnchor = anchor;

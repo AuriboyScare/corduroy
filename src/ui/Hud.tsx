@@ -2,6 +2,7 @@ import { CAMERA_LABELS } from '../game/cameraRig';
 import { formatMoney, helpVisible, hud, loadingMessage, notices, snowLabel } from '../game/hudState';
 import type { Difficulty } from '../sim/resort/layout';
 import { DIFFICULTY_LABEL } from '../sim/resort/layout';
+import { saveStatus } from '../game/saving';
 import { GaragePanel } from './Garage';
 import { StartMenu } from './StartMenu';
 
@@ -52,9 +53,31 @@ const KEYS: [string, string][] = [
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
   ['Scroll', 'Zoom (chase camera)'],
+  ['F5', 'Save now'],
   ['M', 'Sound on / off'],
   ['H', 'Show or hide this list'],
 ];
+
+function SaveLine() {
+  const status = saveStatus.value;
+  let text: string;
+  if (status.state === 'unavailable') text = 'Saving unavailable in this browser';
+  else if (status.state === 'saving') text = 'Saving…';
+  else if (status.state === 'error') text = `Save failed: ${status.message ?? 'unknown error'}`;
+  else if (status.lastSavedAt === null) text = 'Not saved yet · F5 to save';
+  else {
+    const seconds = Math.max(0, Math.round((performance.now() - status.lastSavedAt) / 1000));
+    text = seconds < 60 ? `Saved ${seconds} s ago` : `Saved ${Math.floor(seconds / 60)} min ago`;
+  }
+  const bad = status.state === 'error' || status.state === 'unavailable';
+  return (
+    <div class="row small">
+      <span class={`label save-status${bad ? ' bad' : ''}`} data-testid="save-status">
+        {text}
+      </span>
+    </div>
+  );
+}
 
 function Notices() {
   const list = notices.value;
@@ -192,6 +215,7 @@ export function Hud() {
             {d.atGarage ? 'At the garage · G to open' : `Garage ${(d.garageDistanceM / 1000).toFixed(2)} km`}
           </span>
         </div>
+        <SaveLine />
         <div class="row small">
           <span class="label">Camera: {CAMERA_LABELS[d.camera]}</span>
           <span class="label">

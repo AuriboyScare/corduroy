@@ -1,4 +1,5 @@
 import { PerspectiveCamera, Scene, Vector3, type WebGPURenderer } from 'three/webgpu';
+import type { SaveStore } from '../platform/saveStore';
 import { createEnvironment } from '../render/environment';
 import { FleetView } from '../render/fleetView';
 import { createForest } from '../render/forest';
@@ -17,6 +18,7 @@ import { PathFollower } from '../sim/vehicles/autopilot';
 import type { SnowcatInput } from '../sim/vehicles/snowcat';
 import { World } from '../sim/world';
 import { MachineAudio } from './audio';
+import { loadSlot, peekSlot, SaveManager, slotFor } from './saving';
 import { CameraRig, type CameraMode } from './cameraRig';
 import {
   garageActions,
@@ -32,6 +34,7 @@ import {
   type DealerEntry,
   type FleetEntry,
   type Notice,
+  type StartChoice,
 } from './hudState';
 import { Input, SnowcatControls } from './input';
 
@@ -50,18 +53,31 @@ export interface GameDebug {
   apply(command: Command): ReturnType<World['apply']>;
   /** Drives the Kestrel run uphill on autopilot for a number of steps, without rendering. */
   autoGroom(steps: number): void;
+  /** Saves now; resolves true on success. */
+  save(): Promise<boolean>;
   /** Runs simulation steps immediately, without rendering. */
   fastForward(steps: number, input: SnowcatInput): void;
 }
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
-/** Shows the start menu and resolves with the player's choice. */
-function chooseMode(): Promise<GameMode> {
+/** Shows the start menu, with any saved games, and resolves with the player's choice. */
+async function chooseStart(store: SaveStore | null): Promise<StartChoice> {
+  const saves: Partial<Record<GameMode, NonNullable<Awaited<ReturnType<typeof peekSlot>>>>> = {};
+  if (store) {
+    for (const mode of ['career', 'sandbox'] as const) {
+      const summary = await peekSlot(store, slotFor(mode));
+      if (summary) saves[mode] = summary;
+    }
+  }
   return new Promise((resolve) => {
-    modeMenu.value = (mode) => {
-      modeMenu.value = null;
-      resolve(mode);
+    modeMenu.value = {
+      saves,
+      savingAvailable: store !== null,
+      choose: (choice) => {
+        modeMenu.value = null;
+        resolve(choice);
+      },
     };
   });
 }
@@ -78,22 +94,49 @@ function dealerStats(id: string): string {
   return parts.join(' · ');
 }
 
-export async function startGame(
-  renderer: WebGPURenderer,
-  canvas: HTMLCanvasElement,
-  seed: number,
-  requestedMode: GameMode | null,
-): Promise<GameDebug> {
+export interface StartOptions {
+  renderer: WebGPURenderer;
+  canvas: HTMLCanvasElement;
+  seed: number;
+  /** Skips the start menu when set. */
+  choice: StartChoice | null;
+  store: SaveStore | null;
+}
+
+export async function startGame({
+  renderer,
+  canvas,
+  seed,
+  choice: requested,
+  store,
+}: StartOptions): Promise<GameDebug> {
   loadingMessage.value = null;
-  const mode = requestedMode ?? (await chooseMode());
-  loadingMessage.value = 'Shaping the mountain';
+  const choice = requested ?? (await chooseStart(store));
+  loadingMessage.value = choice.resume ? 'Loading your mountain' : 'Shaping the mountain';
   await nextFrame();
   await nextFrame();
   const buildStart = performance.now();
-  const mountain = generateMountain(seed);
-  const snow = new Snowpack(mountain);
-  snow.fillNatural(seed);
-  const world = new World(mountain, snow, { mode });
+  let world: World | null = null;
+  let startNotice: string | null = null;
+  if (choice.resume && store) {
+    const loaded = await loadSlot(store, slotFor(choice.mode));
+    if (loaded) {
+      world = loaded.world;
+      if (loaded.recoveredFrom) {
+        startNotice = `The latest save was damaged; loaded the backup from ${new Date(loaded.recoveredFrom).toLocaleString()}.`;
+      }
+    } else {
+      startNotice = 'The saved game could not be read, and no backup could either. Started a new game.';
+    }
+  }
+  if (!world) {
+    const fresh = generateMountain(seed);
+    const freshSnow = new Snowpack(fresh);
+    freshSnow.fillNatural(seed);
+    world = new World(fresh, freshSnow, { mode: choice.mode });
+  }
+  const { mountain, snow } = world;
+  const saves = new SaveManager(store, world, slotFor(choice.mode));
   loadingMessage.value = 'Planting the forest';
   await nextFrame();
 
@@ -221,6 +264,7 @@ export async function startGame(
     renderInfo: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),
     setCamera: (cameraMode) => rig.setMode(cameraMode),
     apply,
+    save: () => saves.save(),
     autoGroom: (steps) => {
       const pilot = new PathFollower(runById(mountain, 'kestrel').line, -1, 0.62);
       for (let i = 0; i < steps && !pilot.done; i++) world.step(pilot.update(world.cat, true));
@@ -347,6 +391,15 @@ export async function startGame(
         { id: noticeId++, text, amount: null, at: performance.now(), bonus: false },
       ].slice(-5);
     }
+    if (input.wasPressed('F5')) {
+      void saves.save().then((ok) => {
+        if (ok)
+          notices.value = [
+            ...notices.value,
+            { id: noticeId++, text: 'Game saved', amount: null, at: performance.now(), bonus: false },
+          ].slice(-5);
+      });
+    }
     if (input.wasPressed('KeyC')) rig.cycle();
     if (input.wasPressed('KeyH')) helpVisible.value = !helpVisible.value;
     if (input.wasPressed('KeyM')) audio.muted = !audio.muted;
@@ -370,6 +423,7 @@ export async function startGame(
     environment.update(rig.focus);
     renderer.render(scene, camera);
 
+    saves.tick(now);
     debug.frames++;
     fpsFrames++;
     if (now - fpsStart >= 500) {
@@ -383,6 +437,19 @@ export async function startGame(
       updateHud();
     }
   });
+
+  // Save when the desktop window closes, and when the browser tab is hidden or closed.
+  window.corduroyNative?.onBeforeQuit(() => {
+    void saves.save().finally(() => window.corduroyNative?.quitReady());
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') void saves.save();
+  });
+  if (startNotice) {
+    notices.value = [
+      { id: noticeId++, text: startNotice, amount: null, at: performance.now() + 6000, bonus: false },
+    ];
+  }
 
   loadingMessage.value = null;
   return debug;

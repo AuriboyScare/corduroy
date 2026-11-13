@@ -1,6 +1,10 @@
 import { _electron as electron, expect, test, type Page } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const ci = !!process.env.CI;
+const electronSaves = mkdtempSync(path.join(tmpdir(), 'corduroy-e2e-saves-'));
 
 /** Waits until the game has rendered `frames` frames and returns what the renderer negotiated. */
 async function gameReady(page: Page, frames = 20) {
@@ -187,6 +191,44 @@ test.describe('on a GPU', () => {
     await expect(page.getByTestId('money')).toHaveText('$21,160');
   });
 
+  test('browser: a saved career continues where it left off', async ({ page }) => {
+    await page.goto('/?debug=1&mode=career');
+    await gameReady(page);
+    const before = await page.evaluate(async () => {
+      const game = window.__corduroy!.game!;
+      game.fastForward(900, { throttle: 0.6, steer: 0, bladeLift: 0, tillerDown: true });
+      // Stop and lift the tiller so nothing changes between this save and leaving the page.
+      game.fastForward(300, { throttle: 0, steer: 0, bladeLift: 0, tillerDown: false });
+      const ok = await game.save();
+      return {
+        ok,
+        money: game.world.career.money,
+        z: game.world.cat.body.pz,
+        groomed: game.world.snow.groomedPisteCells,
+      };
+    });
+    expect(before.ok).toBe(true);
+    await expect(page.getByTestId('save-status')).toContainText('Saved');
+    await page.goto('/?debug=1');
+    await expect(page.getByTestId('continue-career')).toContainText(
+      `$${before.money.toLocaleString('en-US')}`,
+    );
+    await page.getByTestId('continue-career').click();
+    await gameReady(page);
+    const after = await page.evaluate(() => {
+      const world = window.__corduroy!.game!.world;
+      return { money: world.career.money, z: world.cat.body.pz, groomed: world.snow.groomedPisteCells };
+    });
+    expect(after.money).toBe(before.money);
+    expect(after.groomed).toBe(before.groomed);
+    // A parked machine still settles on its suspension by fractions of a millimetre.
+    expect(after.z).toBeCloseTo(before.z, 2);
+    // Starting a new career over the save asks first.
+    await page.goto('/?debug=1');
+    await page.getByTestId('start-career').click();
+    await expect(page.getByTestId('confirm-career')).toBeVisible();
+  });
+
   test('browser: WebGL2 fallback renders the game', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/?debug=1&mode=career&gl=1');
@@ -199,7 +241,7 @@ test.describe('on a GPU', () => {
   test('electron: packaged build runs the game with WebGPU and shared memory', async () => {
     const app = await electron.launch({
       args: ['.'],
-      env: { ...process.env, CORDUROY_QUERY: '?debug=1&mode=sandbox' },
+      env: { ...process.env, CORDUROY_QUERY: '?debug=1&mode=sandbox', CORDUROY_SAVES_DIR: electronSaves },
     });
     try {
       const page = await app.firstWindow();

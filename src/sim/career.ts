@@ -41,11 +41,18 @@ export class Career {
   readonly machines: OwnedMachine[] = [];
   /** Lifetime earnings, for the HUD. */
   earned = 0;
-  private nextUid = 1;
+  /** The uid the next machine will get; saved so uids are never reused. */
+  nextUid = 1;
 
   constructor(mode: GameMode) {
     this.mode = mode;
     this.money = mode === 'sandbox' ? Infinity : CAREER_START_MONEY;
+  }
+
+  /** Re-adds a machine from a save, keeping its uid and upgrades. */
+  restoreMachine(machine: OwnedMachine): void {
+    this.machines.push({ uid: machine.uid, model: machine.model, levels: { ...machine.levels } });
+    this.nextUid = Math.max(this.nextUid, machine.uid + 1);
   }
 
   addMachine(model: string): OwnedMachine {

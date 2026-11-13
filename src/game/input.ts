@@ -19,7 +19,8 @@ export class Input {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!this.down.has(e.code)) this.pressed.set(e.code, (this.pressed.get(e.code) ?? 0) + 1);
       this.down.add(e.code);
-      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      // F5 is the save key; stop it reloading the page.
+      if (e.code === 'Space' || e.code === 'F5' || e.code.startsWith('Arrow')) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
     window.addEventListener('blur', () => this.down.clear());

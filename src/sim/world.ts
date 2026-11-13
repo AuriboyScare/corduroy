@@ -117,9 +117,9 @@ export class World {
   private readonly trees: TreeIndex | null;
   private readonly credit: Float64Array;
   private readonly hookedAnchor = new Map<number, string>();
-  /** Money owed but below a cent, carried to the next payout. */
-  private pendingPay = 0;
-  private pendingLabel = '';
+  /** Money owed but below a dollar, carried to the next payout. */
+  pendingPay = 0;
+  pendingLabel = '';
 
   constructor(mountain: Mountain, snow: Snowpack, options: WorldOptions = {}) {
     const mode = options.mode ?? 'career';
@@ -241,9 +241,31 @@ export class World {
     return best;
   }
 
+  /** The hook point of a named anchor (the ring on top of its post). */
+  nearestAnchorPoint(name: string): { x: number; y: number; z: number } | null {
+    const a = this.mountain.winchAnchors.find((anchor) => anchor.name === name);
+    if (!a) return null;
+    return {
+      x: a.x,
+      y: this.mountain.grid.sample(this.mountain.ground, a.x, a.z) + WINCH_POST_HEIGHT_M,
+      z: a.z,
+    };
+  }
+
   /** Name of the anchor a machine's winch is hooked to, if any. */
   winchAnchorName(machine: Machine): string | null {
     return machine.vehicle.winchAnchor ? (this.hookedAnchor.get(machine.owned.uid) ?? null) : null;
+  }
+
+  /** Adds a machine restored from a save, with its upgrades applied; the caller restores its state. */
+  restoreMachine(owned: OwnedMachine, anchorName: string | null): Machine {
+    this.career.restoreMachine(owned);
+    const restored = this.career.machines[this.career.machines.length - 1]!;
+    const vehicle = new Snowcat(effectiveSpec(machineModel(restored.model), restored.levels));
+    const machine = { owned: restored, vehicle };
+    this.machines.push(machine);
+    if (anchorName) this.hookedAnchor.set(restored.uid, anchorName);
+    return machine;
   }
 
   /** Places a newly owned machine in the next free parking bay beside the garage. */

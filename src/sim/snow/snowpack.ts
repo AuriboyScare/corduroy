@@ -45,6 +45,11 @@ export class Snowpack {
 
   /** Fine tiles changed since the renderer last cleared this set. */
   readonly dirtyTiles = new Set<number>();
+  /**
+   * Per 32 m tile: 1 once anything in it differs from the natural snow cover. Saves store only
+   * these tiles; everything else is regenerated from the seed.
+   */
+  readonly changedTiles: Uint8Array;
   coarseDirty = false;
   /** Grid-cell rectangle whose surface height changed; empty when minX > maxX. */
   readonly dirtyRect = { minX: 1, minZ: 1, maxX: 0, maxZ: 0 };
@@ -76,6 +81,7 @@ export class Snowpack {
     this.groomed = new Uint8Array(count);
     this.cellArea = this.grid.cellM * this.grid.cellM;
     this.tilesPerSide = Math.ceil(this.grid.sizeM / TILE_M);
+    this.changedTiles = new Uint8Array(this.tilesPerSide * this.tilesPerSide);
     this.tiles = new Array<Uint8Array | null>(this.tilesPerSide * this.tilesPerSide).fill(null);
     this.coarseN = Math.ceil(this.grid.sizeM / COARSE_CELL_M);
     this.coarse = new Uint8Array(this.coarseN * this.coarseN * 4);
@@ -245,6 +251,7 @@ export class Snowpack {
 
   private setGroomed(i: number, quality: number): void {
     const was = this.groomed[i]!;
+    if (was !== quality) this.markChanged(i);
     const section = this.sectionOf[i]!;
     if (section > 0) {
       if (was === 0 && quality > 0) {
@@ -262,13 +269,39 @@ export class Snowpack {
     this.groomed[i] = quality;
   }
 
+  /** Recounts groomed cells per section after the grid has been restored from a save. */
+  recountGrooming(): void {
+    this.groomedBySection.fill(0);
+    this.groomedPisteCells = 0;
+    for (let i = 0; i < this.groomed.length; i++) {
+      const section = this.sectionOf[i]!;
+      if (section > 0 && this.groomed[i]! > 0) {
+        this.groomedBySection[section]!++;
+        this.groomedPisteCells++;
+      }
+    }
+    this.groomCredit.fill(0);
+  }
+
   /** Copies the pending groom credit per section into `out` and resets it. */
   takeGroomCredit(out: Float64Array): void {
     out.set(this.groomCredit);
     this.groomCredit.fill(0);
   }
 
+  /** Marks the save tile holding cell i as changed. */
+  private markChanged(i: number): void {
+    const n = this.grid.n;
+    const ix = i % n;
+    const iz = (i - ix) / n;
+    const cell = this.grid.cellM;
+    const tx = Math.min(this.tilesPerSide - 1, Math.floor((ix * cell) / TILE_M));
+    const tz = Math.min(this.tilesPerSide - 1, Math.floor((iz * cell) / TILE_M));
+    this.changedTiles[tx + tz * this.tilesPerSide] = 1;
+  }
+
   private touch(i: number): void {
+    this.markChanged(i);
     const n = this.grid.n;
     const ix = i % n;
     const iz = (i - ix) / n;
