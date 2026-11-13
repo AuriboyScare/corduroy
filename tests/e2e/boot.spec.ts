@@ -241,7 +241,7 @@ test.describe('on a GPU', () => {
   test('electron: packaged build runs the game with WebGPU and shared memory', async () => {
     const app = await electron.launch({
       args: ['.'],
-      env: { ...process.env, CORDUROY_QUERY: '?debug=1&mode=sandbox', CORDUROY_SAVES_DIR: electronSaves },
+      env: { ...process.env, CORDUROY_QUERY: '?debug=1&mode=sandbox', CORDUROY_SAVES_DIR: electronSaves, CORDUROY_HIDDEN: '1' },
     });
     try {
       const page = await app.firstWindow();

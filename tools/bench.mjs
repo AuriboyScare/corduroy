@@ -21,7 +21,7 @@ const scenes = {
 
 const browser = await chromium.launch({
   channel: 'chrome',
-  headless: false,
+  headless: true,
   args: ['--enable-unsafe-webgpu'],
 });
 const page = await browser.newPage({ viewport: { width, height } });

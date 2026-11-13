@@ -41,7 +41,10 @@ function createWindow() {
     height: 900,
     backgroundColor: '#0b1016',
     title: 'Corduroy',
+    // Tests open the app without showing it, so it never takes focus from the person at the Mac.
+    show: process.env.CORDUROY_HIDDEN !== '1',
     webPreferences: {
+      backgroundThrottling: process.env.CORDUROY_HIDDEN !== '1',
       preload: path.join(root, 'electron', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
