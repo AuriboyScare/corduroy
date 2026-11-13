@@ -6,6 +6,7 @@ import { createForest } from '../render/forest';
 import { createGarage } from '../render/garage';
 import { MachineEffects } from '../render/machineEffects';
 import { Particles } from '../render/particles';
+import { createResortProps } from '../render/resortProps';
 import { createSnowMaterial } from '../render/snowMaterial';
 import { SurfaceDetailView } from '../render/surfaceDetail';
 import { TerrainView } from '../render/terrainView';
@@ -161,6 +162,7 @@ export async function startGame({
   scene.add(terrain.group);
   const forest = createForest(mountain, snow);
   scene.add(forest.group);
+  scene.add(createResortProps(mountain, snow));
   const garage = createGarage();
   garage.position.set(
     mountain.depot.x,
