@@ -73,3 +73,136 @@ body {
 .bad {
   color: var(--bad);
 }
+
+/* In-game HUD */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  background: #0b1016;
+}
+.loading-title {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.loading-step {
+  margin-top: 10px;
+  color: var(--ink-dim);
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  line-height: 1.55;
+}
+.row.small {
+  font-size: 12px;
+  margin-top: 6px;
+}
+.label {
+  color: var(--ink-dim);
+}
+.value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.unit {
+  color: var(--ink-dim);
+  font-weight: 400;
+  font-size: 0.85em;
+}
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 2px 0 6px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  background: var(--ok);
+}
+.bar-fill.warn {
+  background: var(--warn);
+}
+.bar-fill.bad {
+  background: var(--bad);
+}
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0;
+}
+.cluster {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 268px;
+}
+.cluster-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.machine {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.speed {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.snow {
+  position: absolute;
+  left: 326px;
+  bottom: 16px;
+  width: 196px;
+}
+.snow-type {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.job {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: 232px;
+}
+.help {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 286px;
+  font-size: 13px;
+}
+.help-row {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 10px;
+  line-height: 1.7;
+}
+.help-note {
+  margin-top: 6px;
+  color: var(--ink-dim);
+}
+kbd {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+}
+@media (max-width: 900px) {
+  .help {
+    display: none;
+  }
+  .snow {
+    left: 16px;
+    bottom: auto;
+    top: 16px;
+  }
+}

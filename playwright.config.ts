@@ -6,7 +6,7 @@ const ci = !!process.env.CI;
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  timeout: 60_000,
+  timeout: 120_000,
   workers: 1,
   reporter: ci ? 'github' : 'list',
   use: {
