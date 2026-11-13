@@ -21,17 +21,22 @@ import {
 import type { Snowcat } from '../sim/vehicles/snowcat';
 
 /**
- * Procedural model of the Kestrel 420 groomer (an original, fictional machine).
+ * Procedural model of the Kestrel groomers (original, fictional machines). Built at the size of
+ * the Kestrel 420 and scaled; blade and tiller widths come from the machine's specification.
  * Model frame matches the simulation body: +x left, +y up, +z forward, origin at the centre of mass.
  */
 
-const paint = new MeshStandardNodeMaterial({ color: 0xc22a1c, roughness: 0.42, metalness: 0.15 });
-const paintTwoSided = new MeshStandardNodeMaterial({
-  color: 0xc22a1c,
-  roughness: 0.5,
-  metalness: 0.15,
-  side: DoubleSide,
-});
+export interface SnowcatLook {
+  /** Model name, e.g. "Kestrel 420"; the first word is painted on as the maker's name. */
+  readonly name: string;
+  readonly paint: number;
+  /** Size relative to the Kestrel 420. */
+  readonly scale: number;
+  readonly bladeHalfWidthM: number;
+  readonly tillerHalfWidthM: number;
+  readonly winch: boolean;
+}
+
 const dark = new MeshStandardNodeMaterial({ color: 0x1a1c20, roughness: 0.62, metalness: 0.2 });
 const steel = new MeshStandardNodeMaterial({ color: 0x8d949c, roughness: 0.38, metalness: 0.85 });
 const chrome = new MeshStandardNodeMaterial({ color: 0xcfd4d8, roughness: 0.18, metalness: 1 });
@@ -283,7 +288,8 @@ function wheelGeometry(
   return { tyre, hub: mergeGeometries(parts) };
 }
 
-function logoTexture(): CanvasTexture {
+function logoTexture(name: string): CanvasTexture {
+  const [maker = '', model = ''] = name.split(' ');
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 128;
@@ -292,10 +298,10 @@ function logoTexture(): CanvasTexture {
   ctx.fillStyle = '#f2f4f6';
   ctx.font = 'italic 800 76px "Helvetica Neue", Arial, sans-serif';
   ctx.textBaseline = 'middle';
-  ctx.fillText('KESTREL', 14, 60);
+  ctx.fillText(maker.toUpperCase(), 14, 60);
   ctx.font = '600 30px "Helvetica Neue", Arial, sans-serif';
   ctx.fillStyle = '#ffd9a0';
-  ctx.fillText('420', 408, 86);
+  ctx.fillText(model, 408, 86);
   ctx.fillRect(14, 104, 380, 6);
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
@@ -324,7 +330,15 @@ class Link {
 }
 
 export class SnowcatModel {
+  /** Posed from the simulation each frame. */
   readonly group = new Group();
+  /** Everything else, scaled to the machine's size. */
+  private readonly inner = new Group();
+  private readonly paint: Material;
+  private readonly paintTwoSided: Material;
+  private readonly bladeHalf: number;
+  private readonly tillerHalf: number;
+  private readonly winchBoom = new Group();
   private readonly blade = new Group();
   private readonly tiller = new Group();
   private readonly wheels: { mesh: Group; radius: number; side: number }[] = [];
@@ -342,12 +356,82 @@ export class SnowcatModel {
   private readonly scratchB = new Vector3();
   private glassMesh: Mesh | undefined;
 
-  constructor() {
+  constructor(private readonly look: SnowcatLook) {
+    this.paint = new MeshStandardNodeMaterial({ color: look.paint, roughness: 0.42, metalness: 0.15 });
+    this.paintTwoSided = new MeshStandardNodeMaterial({
+      color: look.paint,
+      roughness: 0.5,
+      metalness: 0.15,
+      side: DoubleSide,
+    });
+    // Implement widths are given in metres; the model is drawn before scaling.
+    this.bladeHalf = look.bladeHalfWidthM / look.scale;
+    this.tillerHalf = look.tillerHalfWidthM / look.scale;
+    this.inner.scale.setScalar(look.scale);
+    this.group.add(this.inner);
     this.buildHull();
+    if (look.winch) this.buildWinch();
     this.buildTracks();
     this.buildBlade();
     this.buildTiller();
     this.cleatCount = Math.floor(this.path.length / CLEAT_SPACING);
+  }
+
+  /** Winch tower on the engine deck: frame, cable drum, and a boom that swings toward the anchor. */
+  private buildWinch(): void {
+    const kit = new Kit();
+    for (const side of [-1, 1]) {
+      kit.box(dark, 0.12, 1.1, 0.12, side * 0.62, 1.15, -1.0, 0.18);
+      kit.box(dark, 0.12, 1.1, 0.12, side * 0.62, 1.15, -2.1, -0.18);
+      kit.box(this.paint, 0.06, 0.62, 0.62, side * 0.52, 1.02, -1.55);
+    }
+    kit.box(dark, 1.36, 0.12, 1.4, 0, 1.68, -1.55);
+    kit.drum(steel, 0.32, 0.96, 0, 1.02, -1.55, 22);
+    kit.drum(dark, 0.36, 0.04, 0.48, 1.02, -1.55, 22);
+    kit.drum(dark, 0.36, 0.04, -0.48, 1.02, -1.55, 22);
+    kit.build(this.inner);
+
+    // Boom: pivots on top of the tower, carries the fairlead sheave the cable leaves from.
+    const boom = new Kit();
+    boom.box(this.paint, 0.22, 0.2, 1.9, 0, 0, -0.9);
+    boom.box(dark, 0.3, 0.3, 0.3, 0, 0, 0);
+    boom.drum(steel, 0.17, 0.08, 0, -0.05, -1.85, 18);
+    boom.box(dark, 0.06, 0.4, 0.4, 0.07, -0.05, -1.85);
+    boom.box(dark, 0.06, 0.4, 0.4, -0.07, -0.05, -1.85);
+    boom.build(this.winchBoom);
+    this.winchBoom.position.set(0, 1.86, -1.55);
+    this.inner.add(this.winchBoom);
+  }
+
+  /** Swings the winch boom toward a world point (the anchor), within its travel. */
+  aimWinch(worldX: number, worldZ: number): void {
+    if (!this.look.winch) return;
+    const local = this.scratchA.set(worldX, this.group.position.y, worldZ);
+    this.group.worldToLocal(local);
+    // The boom rests pointing rearward (-z); yaw it toward the anchor, up to 100 degrees each way.
+    const yaw = Math.atan2(-local.x, -local.z);
+    this.winchBoom.rotation.y = Math.max(-1.75, Math.min(1.75, yaw));
+  }
+
+  /** World position of the fairlead the winch cable leaves from. */
+  fairlead(out: Vector3): Vector3 {
+    out.set(0, -0.05, -1.85);
+    return this.winchBoom.localToWorld(out);
+  }
+
+  /** Releases GPU resources when the machine is rebuilt or sold. */
+  dispose(): void {
+    this.group.traverse((object) => {
+      const mesh = object as Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry.dispose();
+        const material = mesh.material as Material;
+        if (material === this.paint || material === this.paintTwoSided || (material as { map?: unknown }).map)
+          material.dispose();
+      }
+    });
+    this.paint.dispose();
+    this.paintTwoSided.dispose();
   }
 
   /** The cab glazing is hidden when the camera sits inside the cab. */
@@ -364,8 +448,8 @@ export class SnowcatModel {
       kit.box(dark, 0.6, 0.14, 0.3, side * 1.0, -0.55, 1.3);
       kit.box(dark, 0.6, 0.14, 0.3, side * 1.0, -0.55, -1.3);
       // Narrow guard over the inner edge of each track; the belts themselves run open.
-      kit.box(paint, 0.34, 0.05, 4.3, side * 0.92, -0.08, -0.02);
-      kit.box(paint, 0.05, 0.22, 4.3, side * 0.76, -0.2, -0.02);
+      kit.box(this.paint, 0.34, 0.05, 4.3, side * 0.92, -0.08, -0.02);
+      kit.box(this.paint, 0.05, 0.22, 4.3, side * 0.76, -0.2, -0.02);
       // Handrail along the engine deck.
       kit.post(steel, 0.02, 2.2, side * 1.02, 0.98, -1.25, Math.PI / 2);
       for (const z of [-0.2, -1.25, -2.3]) kit.post(steel, 0.02, 0.38, side * 1.02, 0.79, z);
@@ -376,7 +460,7 @@ export class SnowcatModel {
       kit.box(steel, 0.42, 0.03, 0.5, side * 1.28, -0.02, 0.9);
     }
     // Engine deck with intake louvres and service hatches.
-    kit.box(paint, 2.1, 0.72, 2.5, 0, 0.24, -1.25);
+    kit.box(this.paint, 2.1, 0.72, 2.5, 0, 0.24, -1.25);
     kit.box(dark, 1.7, 0.05, 2.1, 0, 0.62, -1.25);
     for (const side of [-1, 1]) {
       for (let k = 0; k < 6; k++) kit.box(dark, 0.03, 0.045, 0.7, side * 1.06, -0.04 + k * 0.07, -2.05);
@@ -389,7 +473,7 @@ export class SnowcatModel {
     kit.post(chrome, 0.05, 0.22, -0.82, 1.9, -0.16, 0.5);
 
     // Cab: painted lower shell, glazed upper, roof with light bar.
-    kit.box(paint, 2.14, 0.6, 1.95, 0, 0.18, 0.98);
+    kit.box(this.paint, 2.14, 0.6, 1.95, 0, 0.18, 0.98);
     kit.box(dark, 2.16, 0.06, 1.97, 0, 0.5, 0.98);
     kit.box(glass, 2.04, 0.92, 1.86, 0, 0.98, 0.98);
     for (const sx of [-1, 1])
@@ -422,17 +506,21 @@ export class SnowcatModel {
     }
     kit.box(lamp, 0.26, 0.12, 0.01, 0.62, 0.6, 1.66, -0.35);
 
-    const meshes = kit.build(this.group);
+    const meshes = kit.build(this.inner);
     this.glassMesh = meshes.get(glass);
     if (this.glassMesh) this.glassMesh.castShadow = false;
 
     // Maker's name on both sides of the engine deck.
-    const logo = new MeshStandardNodeMaterial({ map: logoTexture(), transparent: true, roughness: 0.5 });
+    const logo = new MeshStandardNodeMaterial({
+      map: logoTexture(this.look.name),
+      transparent: true,
+      roughness: 0.5,
+    });
     for (const side of [-1, 1]) {
       const plate = new Mesh(new PlaneGeometry(1.5, 0.375), logo);
       plate.position.set(side * 1.056, 0.36, -1.05);
       plate.rotation.y = (side * Math.PI) / 2;
-      this.group.add(plate);
+      this.inner.add(plate);
     }
   }
 
@@ -450,14 +538,14 @@ export class SnowcatModel {
       const beltMesh = new Mesh(belt, rubber);
       beltMesh.position.x = x;
       beltMesh.castShadow = true;
-      this.group.add(beltMesh);
+      this.inner.add(beltMesh);
 
       const cleats = new InstancedMesh(cleat, steel, count);
       cleats.position.x = x;
       cleats.castShadow = true;
       cleats.frustumCulled = false;
       this.cleats.push(cleats);
-      this.group.add(cleats);
+      this.inner.add(cleats);
 
       const addWheel = (
         shape: { tyre: BufferGeometry; hub: BufferGeometry },
@@ -472,7 +560,7 @@ export class SnowcatModel {
         wheel.add(tyre, new Mesh(shape.hub, steel));
         wheel.position.set(x, y, z);
         this.wheels.push({ mesh: wheel, radius, side });
-        this.group.add(wheel);
+        this.inner.add(wheel);
       };
       for (const z of WHEEL_Z) addWheel(road, rubber, TRACK_BOTTOM + WHEEL_R + 0.05, z, WHEEL_R);
       addWheel(idler, rubber, IDLER.y, IDLER.z, IDLER.r);
@@ -488,13 +576,13 @@ export class SnowcatModel {
       const t = k / 10;
       profile.push([1.12 * t, -0.27 * Math.sin(Math.PI * t ** 0.9) + 0.2 * t * t]);
     }
-    const hinge = 1.82;
     const wing = 0.9;
+    const hinge = this.bladeHalf - wing * Math.cos(0.42);
     const sweepAngle = 0.42;
     const tipX = hinge + wing * Math.cos(sweepAngle);
     const tipDz = wing * Math.sin(sweepAngle);
     kit.add(
-      paintTwoSided,
+      this.paintTwoSided,
       sweep(profile, [
         { x: -tipX, dz: tipDz },
         { x: -hinge, dz: 0 },
@@ -511,15 +599,29 @@ export class SnowcatModel {
       kit.post(dark, 0.045, 1.16, side * hinge, 0.57, -0.3);
     }
     // Cutting edge with teeth, spill guard on top, and the frame the lift arms carry.
-    kit.box(steel, 3.66, 0.09, 0.025, 0, 0.03, 0.01, -0.2);
-    for (let k = 0; k < 30; k++) kit.box(steel, 0.07, 0.07, 0.025, -1.78 + k * 0.1228, -0.03, 0.02, -0.2);
-    kit.box(dark, 3.66, 0.04, 0.1, 0, 1.13, 0.17);
-    kit.box(dark, 3.5, 0.14, 0.12, 0, 0.3, -0.36);
-    kit.box(dark, 3.5, 0.14, 0.12, 0, 0.82, -0.36);
-    for (const x of [-1.5, -0.7, 0.7, 1.5]) kit.box(dark, 0.1, 0.66, 0.1, x, 0.56, -0.36);
-    for (const x of [-1.5, -0.7, 0.7, 1.5]) kit.box(dark, 0.08, 0.08, 0.2, x, 0.56, -0.28);
+    const edge = 2 * hinge + 0.02;
+    kit.box(steel, edge, 0.09, 0.025, 0, 0.03, 0.01, -0.2);
+    const teeth = Math.round(edge / 0.122);
+    for (let k = 0; k < teeth; k++) {
+      kit.box(
+        steel,
+        0.07,
+        0.07,
+        0.025,
+        -edge / 2 + 0.06 + (k * (edge - 0.12)) / (teeth - 1),
+        -0.03,
+        0.02,
+        -0.2,
+      );
+    }
+    kit.box(dark, edge, 0.04, 0.1, 0, 1.13, 0.17);
+    kit.box(dark, edge - 0.16, 0.14, 0.12, 0, 0.3, -0.36);
+    kit.box(dark, edge - 0.16, 0.14, 0.12, 0, 0.82, -0.36);
+    const outer = hinge - 0.32;
+    for (const x of [-outer, -0.7, 0.7, outer]) kit.box(dark, 0.1, 0.66, 0.1, x, 0.56, -0.36);
+    for (const x of [-outer, -0.7, 0.7, outer]) kit.box(dark, 0.08, 0.08, 0.2, x, 0.56, -0.28);
     kit.build(this.blade);
-    this.group.add(this.blade);
+    this.inner.add(this.blade);
 
     // Lift arms and hydraulic rams between the chassis and the blade frame.
     for (const side of [-1, 1]) {
@@ -528,7 +630,7 @@ export class SnowcatModel {
       const rod = new Mesh(new CylinderGeometry(0.03, 0.03, 1, 10), chrome);
       for (const mesh of [arm, barrel, rod]) {
         mesh.castShadow = true;
-        this.group.add(mesh);
+        this.inner.add(mesh);
       }
       const x = side * 0.7;
       this.links.push(
@@ -559,49 +661,63 @@ export class SnowcatModel {
 
   private buildTiller(): void {
     const kit = new Kit();
+    const half = this.tillerHalf;
     // Local origin is the hitch pivot at the rear of the chassis; the tiller trails toward -z.
     const housing: [number, number][] = [];
     for (let k = 0; k <= 10; k++) {
       const a = -0.25 + (k / 10) * (Math.PI + 0.5);
       housing.push([-0.32 + 0.35 * Math.sin(a), -1.4 + 0.35 * Math.cos(a)]);
     }
+    const knives = Math.max(4, Math.round((half - 0.14) / 0.165));
     for (const side of [-1, 1]) {
       kit.box(dark, 0.12, 0.14, 1.3, side * 0.55, 0.0, -0.62);
       // Cutter drum housing, one half per side, with end plates.
       kit.add(
-        paintTwoSided,
-        new CylinderGeometry(0.34, 0.34, 2.66, 16, 1, true, -Math.PI / 2, Math.PI),
-        side * 1.36,
-        -0.32,
-        -1.4,
-        Math.PI / 2,
+        this.paintTwoSided,
+        sweep(housing, [
+          { x: side * 0.03, dz: 0 },
+          { x: side * (half - 0.01), dz: 0 },
+        ]),
         0,
-        Math.PI / 2,
+        0,
+        0,
       );
-      kit.box(dark, 0.04, 0.5, 0.74, side * 2.71, -0.3, -1.42);
-      kit.drum(steel, 0.2, 2.6, side * 1.36, -0.4, -1.4, 14);
-      for (let k = 0; k < 16; k++)
+      kit.box(dark, 0.04, 0.5, 0.74, side * (half + 0.01), -0.3, -1.42);
+      kit.drum(steel, 0.2, half - 0.1, side * (0.05 + (half - 0.1) / 2), -0.4, -1.4, 14);
+      for (let k = 0; k < knives; k++)
         kit.box(steel, 0.05, 0.56, 0.05, side * (0.14 + k * 0.165), -0.4, -1.4, k * 0.9, 0, 0);
       // Side finisher wings.
-      kit.box(rubber, 0.03, 0.2, 0.9, side * 2.74, -0.5, -1.75);
+      kit.box(rubber, 0.03, 0.2, 0.9, side * (half + 0.04), -0.5, -1.75);
     }
     kit.box(dark, 0.36, 0.3, 0.5, 0, -0.14, -1.3);
-    kit.box(dark, 5.42, 0.07, 0.1, 0, 0.02, -1.4);
+    kit.box(dark, 2 * half + 0.02, 0.07, 0.1, 0, 0.02, -1.4);
     kit.box(dark, 1.3, 0.1, 0.1, 0, 0.02, -0.02);
     // Finisher: the flexible comb mat that presses the corduroy.
-    kit.box(rubber, 5.44, 0.025, 0.62, 0, -0.5, -1.98, 0.16);
-    for (let k = 0; k < 90; k++) kit.box(rubber, 0.03, 0.05, 0.14, -2.68 + k * 0.0602, -0.58, -2.3, 0.16);
-    kit.box(steel, 5.44, 0.04, 0.05, 0, -0.42, -1.72);
+    kit.box(rubber, 2 * half + 0.04, 0.025, 0.62, 0, -0.5, -1.98, 0.16);
+    const teeth = Math.round((2 * half) / 0.06);
+    for (let k = 0; k < teeth; k++) {
+      kit.box(
+        rubber,
+        0.03,
+        0.05,
+        0.14,
+        -half + 0.02 + (k * (2 * half - 0.04)) / (teeth - 1),
+        -0.58,
+        -2.3,
+        0.16,
+      );
+    }
+    kit.box(steel, 2 * half + 0.04, 0.04, 0.05, 0, -0.42, -1.72);
     kit.build(this.tiller);
     this.tiller.position.copy(TILLER_PIVOT);
-    this.group.add(this.tiller);
+    this.inner.add(this.tiller);
 
     for (const side of [-1, 1]) {
       const barrel = new Mesh(new CylinderGeometry(0.05, 0.05, 0.5, 10), dark);
       const rod = new Mesh(new CylinderGeometry(0.028, 0.028, 1, 10), chrome);
       barrel.castShadow = true;
       rod.castShadow = true;
-      this.group.add(barrel, rod);
+      this.inner.add(barrel, rod);
       const x = side * 0.3;
       const from = new Vector3(x, 0.45, -2.35);
       const to = new Vector3(x, 0.06, -1.1);
@@ -618,7 +734,8 @@ export class SnowcatModel {
     this.group.position.set(b.px, b.py, b.pz);
     this.group.quaternion.set(b.qx, b.qy, b.qz, b.qw);
 
-    this.blade.position.set(0, TRACK_BOTTOM + cat.bladeHeightM, cat.spec.bladeZ);
+    const scale = this.look.scale;
+    this.blade.position.set(0, TRACK_BOTTOM + cat.bladeHeightM / scale, cat.spec.bladeZ / scale);
     this.tiller.rotation.x = 0.42 * (1 - cat.tillerPos);
 
     for (const item of this.links) {
@@ -627,7 +744,8 @@ export class SnowcatModel {
       item.link.aim(this.scratchA.copy(item.from), to, item.stretch);
     }
 
-    for (const wheel of this.wheels) wheel.mesh.rotation.x = cat.trackTravel[wheel.side]! / wheel.radius;
+    for (const wheel of this.wheels)
+      wheel.mesh.rotation.x = cat.trackTravel[wheel.side]! / scale / wheel.radius;
 
     // Cleats ride the belt: each sits at a fixed spacing along the loop, advanced by belt travel.
     const path = this.path;
@@ -635,7 +753,7 @@ export class SnowcatModel {
     for (let side = 0; side < 2; side++) {
       const mesh = this.cleats[side]!;
       // The belt's ground run moves rearward when the machine drives forward.
-      let offset = -cat.trackTravel[side]! % CLEAT_SPACING;
+      let offset = (-cat.trackTravel[side]! / scale) % CLEAT_SPACING;
       if (offset < 0) offset += CLEAT_SPACING;
       let segment = 0;
       for (let k = 0; k < this.cleatCount; k++) {

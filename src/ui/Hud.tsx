@@ -1,5 +1,9 @@
 import { CAMERA_LABELS } from '../game/cameraRig';
-import { helpVisible, hud, loadingMessage, snowLabel } from '../game/hudState';
+import { formatMoney, helpVisible, hud, loadingMessage, notices, snowLabel } from '../game/hudState';
+import type { Difficulty } from '../sim/resort/layout';
+import { DIFFICULTY_LABEL } from '../sim/resort/layout';
+import { GaragePanel } from './Garage';
+import { StartMenu } from './StartMenu';
 
 function Bar({ value, warnAt = 0.85 }: { value: number; warnAt?: number }) {
   const clamped = Math.max(0, Math.min(1, value));
@@ -25,17 +29,45 @@ function Row({ label, value, unit }: { label: string; value: string; unit?: stri
   );
 }
 
+/** Trail sign: green circle, blue square, black diamond; the beginner area also uses green. */
+function TrailSign({ difficulty }: { difficulty: Difficulty }) {
+  return (
+    <span
+      class={`sign sign-${difficulty}`}
+      title={DIFFICULTY_LABEL[difficulty]}
+      aria-label={DIFFICULTY_LABEL[difficulty]}
+    />
+  );
+}
+
 const KEYS: [string, string][] = [
   ['W / S', 'Drive forward / reverse'],
   ['A / D', 'Steer (pivots when stopped)'],
   ['R / F', 'Blade up / down'],
   ['T', 'Tiller down and running / up'],
+  ['V', 'Cruise control (if fitted)'],
+  ['G', 'Garage: machines and upgrades'],
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
   ['Scroll', 'Zoom (chase camera)'],
   ['M', 'Sound on / off'],
   ['H', 'Show or hide this list'],
 ];
+
+function Notices() {
+  const list = notices.value;
+  if (list.length === 0) return null;
+  return (
+    <div class="notices" aria-live="polite">
+      {list.map((n) => (
+        <div class={`notice${n.bonus ? ' bonus' : ''}`} key={n.id}>
+          <span>{n.text}</span>
+          <span class="notice-amount">+{formatMoney(n.amount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function Hud() {
   const loading = loadingMessage.value;
@@ -48,7 +80,7 @@ export function Hud() {
     );
   }
   const d = hud.value;
-  if (!d) return null;
+  if (!d) return <StartMenu />;
   return (
     <>
       <div class="panel cluster" data-testid="cluster">
@@ -59,6 +91,12 @@ export function Hud() {
             <span class="unit"> km/h{d.speedKmh < -0.5 ? ' rev' : ''}</span>
           </span>
         </div>
+        {d.cruiseKmh !== null && (
+          <div class="row">
+            <span class="label">Cruise</span>
+            <span class="value ok">{d.cruiseKmh.toFixed(1)} km/h</span>
+          </div>
+        )}
         <div class="row">
           <span class="label">Engine</span>
           <span class="value">
@@ -109,11 +147,33 @@ export function Hud() {
       </div>
 
       <div class="panel job" data-testid="job-panel">
-        <div class="row">
-          <span class="label">Piste groomed</span>
-          <span class="value">{(d.pisteGroomed * 100).toFixed(1)}%</span>
+        <div class="job-head">
+          <span class="money" data-testid="money">
+            {formatMoney(d.money)}
+          </span>
+          <span class="label">{d.mode === 'sandbox' ? 'Sandbox' : 'Career'}</span>
         </div>
-        <Bar value={d.pisteGroomed} warnAt={2} />
+        <div class="runs">
+          {d.runs.map((run) => (
+            <div class="run" key={run.name}>
+              <div class="run-head">
+                <TrailSign difficulty={run.difficulty} />
+                <span class="run-name">{run.name}</span>
+                <span class="value">{Math.round(run.groomed * 100)}%</span>
+              </div>
+              <div class="sections" aria-hidden="true">
+                {run.sections.map((s, k) => (
+                  <span key={k} class={`section${s >= 0.9 ? ' done' : s > 0.05 ? ' partial' : ''}`} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div class="row small">
+          <span class="label">
+            {d.atGarage ? 'At the garage · G to open' : `Garage ${(d.garageDistanceM / 1000).toFixed(2)} km`}
+          </span>
+        </div>
         <div class="row small">
           <span class="label">Camera: {CAMERA_LABELS[d.camera]}</span>
           <span class="label">
@@ -122,6 +182,8 @@ export function Hud() {
           </span>
         </div>
       </div>
+
+      <Notices />
 
       {helpVisible.value && (
         <div class="panel help" data-testid="help">
@@ -138,6 +200,8 @@ export function Hud() {
           )}
         </div>
       )}
+
+      <GaragePanel />
     </>
   );
 }

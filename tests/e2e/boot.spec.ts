@@ -41,10 +41,10 @@ function collectErrors(page: Page): string[] {
 // software. It checks only that the build boots and the simulation works inside the page.
 test('browser: boots, shows the HUD and simulates', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&mode=career');
   const boot = await gameReady(page, 2);
   expect(boot.crossOriginIsolated).toBe(true);
-  await expect(page.getByTestId('cluster')).toContainText('Kestrel 420', { timeout: 30_000 });
+  await expect(page.getByTestId('cluster')).toContainText('Kestrel 260', { timeout: 30_000 });
   const result = await page.evaluate(() => {
     const game = window.__corduroy!.game!;
     const start = game.world.cat.body.pz;
@@ -75,10 +75,10 @@ test.describe('on a GPU', () => {
 
   test('browser: the snowcat drives, grooms and the HUD follows', async ({ page }) => {
     const errors = collectErrors(page);
-    await page.goto('/?debug=1');
+    await page.goto('/?debug=1&mode=career');
     const boot = await gameReady(page);
     expect(boot.backend).toBe('webgpu');
-    await expect(page.getByTestId('cluster')).toContainText('Kestrel 420');
+    await expect(page.getByTestId('cluster')).toContainText('Kestrel 260');
     await expect(page.getByTestId('snow-panel')).toContainText('Fresh powder');
 
     const result = await page.evaluate(() => {
@@ -92,13 +92,13 @@ test.describe('on a GPU', () => {
     expect(result.moved).toBeGreaterThan(30);
     expect(result.quality).toBeGreaterThan(0.9);
     await expect(page.getByTestId('cluster')).toContainText('Grooming');
-    await expect(page.getByTestId('job-panel')).not.toContainText('0.0%');
+    await expect(page.getByTestId('money')).not.toHaveText('$2,000');
     await expectRenderedImage(page, 'game-browser');
     expect(errors).toEqual([]);
   });
 
   test('browser: keyboard drives the machine and works the implements', async ({ page }) => {
-    await page.goto('/?debug=1');
+    await page.goto('/?debug=1&mode=career');
     await gameReady(page);
     const read = () =>
       page.evaluate(() => {
@@ -137,7 +137,7 @@ test.describe('on a GPU', () => {
   });
 
   test('browser: cameras switch with the keyboard, even with two presses in one frame', async ({ page }) => {
-    await page.goto('/?debug=1');
+    await page.goto('/?debug=1&mode=career');
     await gameReady(page);
     await expect(page.getByTestId('job-panel')).toContainText('Chase');
     await page.keyboard.press('KeyC');
@@ -156,9 +156,40 @@ test.describe('on a GPU', () => {
     await expect(page.getByTestId('help')).toHaveCount(0);
   });
 
+  test('browser: start menu leads into a career', async ({ page }) => {
+    await page.goto('/?debug=1');
+    await page.getByTestId('start-career').click();
+    await gameReady(page);
+    await expect(page.getByTestId('money')).toHaveText('$2,000');
+    await expect(page.getByTestId('cluster')).toContainText('Kestrel 260');
+  });
+
+  test('browser: the garage sells upgrades and machines, and swaps machines', async ({ page }) => {
+    await page.goto('/?debug=1&mode=career');
+    await gameReady(page);
+    await page.evaluate(() => {
+      window.__corduroy!.game!.world.career.money = 60_000;
+    });
+    await page.keyboard.press('KeyG');
+    const garage = page.getByTestId('garage');
+    await expect(garage).toBeVisible();
+    await garage.getByTestId('upgrade-engine').getByRole('button').click();
+    await expect(page.getByTestId('garage-message')).toContainText('Engine remap fitted');
+    const power = await page.evaluate(() => window.__corduroy!.game!.world.cat.spec.enginePowerW);
+    expect(power).toBeCloseTo(175_000 * 1.12);
+    await garage.getByTestId('offer-kestrel-420').getByRole('button').click();
+    await expect(page.getByTestId('garage-message')).toContainText('Kestrel 420 delivered');
+    await expect(garage.getByTestId('fleet-kestrel-420')).toBeVisible();
+    await garage.getByTestId('drive').click();
+    await expect(garage).toHaveCount(0);
+    await expect(page.getByTestId('cluster')).toContainText('Kestrel 420');
+    // $60,000 less the remap ($840) and the machine ($38,000).
+    await expect(page.getByTestId('money')).toHaveText('$21,160');
+  });
+
   test('browser: WebGL2 fallback renders the game', async ({ page }) => {
     const errors = collectErrors(page);
-    await page.goto('/?debug=1&gl=1');
+    await page.goto('/?debug=1&mode=career&gl=1');
     const boot = await gameReady(page);
     expect(boot.backend).toBe('webgl2');
     await expectRenderedImage(page, 'game-webgl2');
@@ -166,7 +197,10 @@ test.describe('on a GPU', () => {
   });
 
   test('electron: packaged build runs the game with WebGPU and shared memory', async () => {
-    const app = await electron.launch({ args: ['.'], env: { ...process.env, CORDUROY_QUERY: '?debug=1' } });
+    const app = await electron.launch({
+      args: ['.'],
+      env: { ...process.env, CORDUROY_QUERY: '?debug=1&mode=sandbox' },
+    });
     try {
       const page = await app.firstWindow();
       const boot = await gameReady(page);

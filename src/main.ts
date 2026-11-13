@@ -24,7 +24,13 @@ async function boot(): Promise<void> {
   const { renderer, info } = await createRenderer({ canvas, forceWebGL: params.get('gl') === '1' });
   const bridge: DebugBridge = { boot: info };
   if (params.get('debug') === '1') window.__corduroy = bridge;
-  bridge.game = await startGame(renderer, canvas, Number(params.get('seed') ?? 11));
+  const mode = params.get('mode');
+  bridge.game = await startGame(
+    renderer,
+    canvas,
+    Number(params.get('seed') ?? 11),
+    mode === 'career' || mode === 'sandbox' ? mode : null,
+  );
 }
 
 boot().catch((error: unknown) => {

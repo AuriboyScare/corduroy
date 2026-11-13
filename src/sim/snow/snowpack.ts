@@ -51,13 +51,24 @@ export class Snowpack {
 
   /** Piste cells currently groomed. */
   groomedPisteCells = 0;
-  private readonly pisteMask: Uint8Array;
+  /** Groomed cells per run section; index is section + 1, slot 0 counts nothing. */
+  readonly groomedBySection: Int32Array;
+  /**
+   * Newly groomed area per section since the last call to takeGroomCredit(), in cells weighted
+   * by grooming quality (0..1). This is what grooming pays for.
+   */
+  readonly groomCredit: Float64Array;
+  private readonly sectionOf: Uint16Array;
+  private readonly runOf: Uint8Array;
   private readonly cellArea: number;
 
   constructor(mountain: Mountain) {
     this.grid = mountain.grid;
     this.ground = mountain.ground;
-    this.pisteMask = mountain.pisteMask;
+    this.sectionOf = mountain.sectionOf;
+    this.runOf = mountain.runOf;
+    this.groomedBySection = new Int32Array(mountain.sections.length + 1);
+    this.groomCredit = new Float64Array(mountain.sections.length + 1);
     const count = this.grid.count;
     this.base = new Float32Array(count);
     this.top = new Float32Array(count);
@@ -95,7 +106,7 @@ export class Snowpack {
         const slope = Math.hypot(xr - xl, zd - zu) / (2 * this.grid.cellM);
         const hold = 1 - smoothstep(0.85, 1.35, slope);
         const drift = fbm2(ix / 38, iz / 38, seed + 40, 3);
-        if (this.pisteMask[i]) {
+        if (this.runOf[i]) {
           this.base[i] = 0.55;
           this.top[i] = 0.24 + 0.03 * drift;
           this.density[i] = 115;
@@ -210,7 +221,7 @@ export class Snowpack {
    */
   till(i: number, quality: number): void {
     if (this.groomed[i]! > 0) {
-      if (quality > this.groomed[i]!) this.groomed[i] = quality;
+      if (quality > this.groomed[i]!) this.setGroomed(i, quality);
       return;
     }
     const top = this.top[i]!;
@@ -234,11 +245,27 @@ export class Snowpack {
 
   private setGroomed(i: number, quality: number): void {
     const was = this.groomed[i]!;
-    if (this.pisteMask[i]) {
-      if (was === 0 && quality > 0) this.groomedPisteCells++;
-      else if (was > 0 && quality === 0) this.groomedPisteCells--;
+    const section = this.sectionOf[i]!;
+    if (section > 0) {
+      if (was === 0 && quality > 0) {
+        this.groomedPisteCells++;
+        this.groomedBySection[section]!++;
+        this.groomCredit[section]! += quality / 255;
+      } else if (was > 0 && quality === 0) {
+        this.groomedPisteCells--;
+        this.groomedBySection[section]!--;
+      } else if (quality > was) {
+        // A better pass over existing grooming earns the improvement.
+        this.groomCredit[section]! += (quality - was) / 255;
+      }
     }
     this.groomed[i] = quality;
+  }
+
+  /** Copies the pending groom credit per section into `out` and resets it. */
+  takeGroomCredit(out: Float64Array): void {
+    out.set(this.groomCredit);
+    this.groomCredit.fill(0);
   }
 
   private touch(i: number): void {

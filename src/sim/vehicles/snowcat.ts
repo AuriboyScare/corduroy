@@ -28,6 +28,23 @@ export interface SnowcatSpec {
   readonly tillerHalfWidthM: number;
   readonly tillerZ: number;
   readonly tillerPowerW: number;
+  /** Outline used for inertia and collisions, m. */
+  readonly bodyWidthM: number;
+  readonly bodyHeightM: number;
+  readonly bodyLengthM: number;
+  /** How fast the blade rises or falls, m/s. */
+  readonly bladeRateMs: number;
+  /** How fast the tiller lowers or lifts, fraction of its travel per second. */
+  readonly tillerRate: number;
+  /** Fastest working speed at which the finisher still lays full-quality corduroy, m/s. */
+  readonly cleanSpeedMs: number;
+  /** Multiplier on track friction, from track and grouser options. */
+  readonly gripFactor: number;
+  /** Winch fitted: maximum line pull, N (0 = no winch). */
+  readonly winchPullN: number;
+  readonly winchCableM: number;
+  /** Cruise control fitted. */
+  readonly cruiseControl: boolean;
 }
 
 export const KESTREL_420: SnowcatSpec = {
@@ -47,6 +64,16 @@ export const KESTREL_420: SnowcatSpec = {
   tillerHalfWidthM: 2.7,
   tillerZ: -3.9,
   tillerPowerW: 70_000,
+  bodyWidthM: 4.4,
+  bodyHeightM: 2.6,
+  bodyLengthM: 8,
+  bladeRateMs: 0.45,
+  tillerRate: 1.3,
+  cleanSpeedMs: 4.2,
+  gripFactor: 1,
+  winchPullN: 0,
+  winchCableM: 0,
+  cruiseControl: false,
 };
 
 export interface SnowcatInput {
@@ -66,10 +93,14 @@ const GRAVITY = 9.81;
 const SUBSTEPS = 4;
 /** How far the bogies deflect under the machine's own weight; also their droop travel. */
 const SPRING_SAG_M = 0.12;
+/** Share of engine power that reaches the tracks through the hydrostatic drive. */
+const DRIVE_EFFICIENCY = 0.85;
+/** How quickly the drive can change belt speed, m/s². */
+const BELT_ACCEL_MS2 = 3.6;
 const BLADE_SAMPLES = 13;
 
 export class Snowcat {
-  readonly spec: SnowcatSpec;
+  spec: SnowcatSpec;
   readonly body: RigidBody;
   /** Track belt speeds, m/s. Index 0 is the left track. */
   readonly trackSpeed = new Float64Array(2);
@@ -92,30 +123,56 @@ export class Snowcat {
   /** Quality of the grooming being laid right now, 0..1; 0 when the tiller is not working. */
   groomQuality = 0;
 
-  private readonly springK: number;
-  private readonly springC: number;
-  private readonly sideGroundSpeed = new Float64Array(2);
+  private springK = 0;
+  private springC = 0;
+  /** Traction each track transmitted in the last substep, N. */
+  private readonly sideForce = new Float64Array(2);
+  private readonly beltTarget = new Float64Array(2);
   private cutRateKgS = 0;
 
   constructor(spec: SnowcatSpec = KESTREL_420) {
     this.spec = spec;
+    this.body = new RigidBody(spec.massKg, 1, 1, 1);
+    this.applySpec(spec);
+  }
+
+  /**
+   * Changes the machine's specification (after an upgrade) without moving it. Mass, inertia and
+   * suspension are recomputed so the machine still rests at the same ride height.
+   */
+  applySpec(spec: SnowcatSpec): void {
+    this.spec = spec;
     const m = spec.massKg;
-    // Box-like inertia for a machine about 4.4 m wide, 2.6 m tall and 8 m long with implements.
-    this.body = new RigidBody(
-      m,
-      (m * (2.6 ** 2 + 8 ** 2)) / 12,
-      (m * (4.4 ** 2 + 8 ** 2)) / 12,
-      (m * (4.4 ** 2 + 2.6 ** 2)) / 12,
-    );
+    const { bodyWidthM: w, bodyHeightM: h, bodyLengthM: l } = spec;
+    this.body.setMass(m, (m * (h * h + l * l)) / 12, (m * (w * w + l * l)) / 12, (m * (w * w + h * h)) / 12);
     const contacts = spec.contactZ.length * 2;
     this.springK = (m * GRAVITY) / contacts / SPRING_SAG_M;
     this.springC = 2 * 0.75 * Math.sqrt((this.springK * m) / contacts);
+    this.bladeHeightM = Math.max(BLADE_MIN_M, Math.min(BLADE_MAX_M, this.bladeHeightM));
+    this.bladeLoadKg = Math.min(this.bladeLoadKg, spec.bladeCapacityKg);
   }
 
   /** Parks the machine on the snow at a position. */
   place(x: number, z: number, heading: number, snow: Snowpack): void {
-    const y = snow.supportAt(x, z, this.spec.trackCompactionDensity) + this.spec.trackBottomM;
+    // Sit the tracks on the slope: pitch and roll from the snow under the ends and sides of the
+    // tracks, so no contact starts buried (which would throw the machine).
+    const spec = this.spec;
+    const rho = spec.trackCompactionDensity;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const reach = spec.contactZ[spec.contactZ.length - 1]!;
+    const side = spec.trackOffsetM;
+    const front = snow.supportAt(x + fx * reach, z + fz * reach, rho);
+    const rear = snow.supportAt(x - fx * reach, z - fz * reach, rho);
+    const left = snow.supportAt(x + fz * side, z - fx * side, rho);
+    const right = snow.supportAt(x - fz * side, z + fx * side, rho);
+    const noseUp = Math.atan2(front - rear, 2 * reach);
+    const leftUp = Math.atan2(left - right, 2 * side);
+    const y = (front + rear + left + right) / 4 + spec.trackBottomM / Math.cos(noseUp);
     this.body.reset(x, y, z, heading);
+    // Heading about +y, then nose-up pitch (a negative turn about +x), then roll about +z.
+    this.body.rotateLocal(1, 0, 0, -noseUp);
+    this.body.rotateLocal(0, 0, 1, leftUp);
     this.trackSpeed.fill(0);
   }
 
@@ -151,9 +208,9 @@ export class Snowcat {
   step(dt: number, input: SnowcatInput, snow: Snowpack, obstacles: ObstacleQuery | null): void {
     this.bladeHeightM = Math.max(
       BLADE_MIN_M,
-      Math.min(BLADE_MAX_M, this.bladeHeightM + input.bladeLift * 0.45 * dt),
+      Math.min(BLADE_MAX_M, this.bladeHeightM + input.bladeLift * this.spec.bladeRateMs * dt),
     );
-    this.tillerPos = clamp01(this.tillerPos + (input.tillerDown ? 1 : -1) * 1.3 * dt);
+    this.tillerPos = clamp01(this.tillerPos + (input.tillerDown ? 1 : -1) * this.spec.tillerRate * dt);
 
     const h = dt / SUBSTEPS;
     for (let s = 0; s < SUBSTEPS; s++) this.substep(h, input, snow, obstacles);
@@ -167,22 +224,32 @@ export class Snowcat {
     const b = this.body;
     const rhoC = spec.trackCompactionDensity;
 
-    // Drive: each belt chases its commanded speed; an overloaded engine drags belts back toward ground speed.
+    // Drive: hydrostatic, so each belt chases its commanded speed but the engine can only supply
+    // so much power. When traction times belt speed would exceed it, both belts slow in
+    // proportion until it fits; the drive bogs down but never runs backwards on its own.
     const base =
       input.throttle >= 0 ? input.throttle * spec.maxForwardMs : input.throttle * spec.maxReverseMs;
     const diff = input.steer * Math.max(1.3, Math.abs(base) * 0.55);
-    const over = Math.max(0, this.engineLoad - 1);
+    const available = Math.max(
+      0.1,
+      DRIVE_EFFICIENCY * spec.enginePowerW - (this.tillerPos > 0.5 ? spec.tillerPowerW : 0),
+    );
+    let demand = 0;
     for (let side = 0; side < 2; side++) {
       // The outer belt cannot exceed top speed, so a turn at speed slows the inner belt instead.
       const target = Math.max(
         -spec.maxForwardMs,
         Math.min(spec.maxForwardMs, base + (side === 0 ? -diff : diff)),
       );
-      let u = this.trackSpeed[side]!;
-      const step = 3.6 * h * (1 - Math.min(0.9, over * 2));
-      u += Math.max(-step, Math.min(step, target - u));
-      if (over > 0) u += (this.sideGroundSpeed[side]! - u) * Math.min(1, over * 6) * h * 5;
-      this.trackSpeed[side] = u;
+      this.beltTarget[side] = target;
+      demand += Math.abs(this.sideForce[side]! * target);
+    }
+    const scale = demand > available ? available / demand : 1;
+    const step = BELT_ACCEL_MS2 * h;
+    for (let side = 0; side < 2; side++) {
+      const u = this.trackSpeed[side]!;
+      const target = this.beltTarget[side]! * scale;
+      this.trackSpeed[side] = u + Math.max(-step, Math.min(step, target - u));
     }
 
     b.toWorld(0, 0, 1);
@@ -197,7 +264,7 @@ export class Snowcat {
     for (let side = 0; side < 2; side++) {
       const lx = side === 0 ? spec.trackOffsetM : -spec.trackOffsetM;
       const u = this.trackSpeed[side]!;
-      let groundSpeed = 0;
+      let traction = 0;
       let touching = 0;
       for (let c = 0; c < spec.contactZ.length; c++) {
         b.toWorld(lx, -spec.trackBottomM, spec.contactZ[c]!);
@@ -253,15 +320,17 @@ export class Snowcat {
 
         const vLong = pvx * tx + pvy * ty + pvz * tz;
         const vLat = pvx * lxw + pvy * lyw + pvz * lzw;
-        let fLong = mu * normalForce * Math.tanh((u - vLong) / 0.04);
-        let fLat = -0.9 * mu * normalForce * Math.tanh(vLat / 0.15);
-        const limit = mu * normalForce;
+        const grip = mu * spec.gripFactor;
+        let fLong = grip * normalForce * Math.tanh((u - vLong) / 0.04);
+        let fLat = -0.9 * grip * normalForce * Math.tanh(vLat / 0.15);
+        const limit = grip * normalForce;
         const mag = Math.hypot(fLong, fLat);
         if (mag > limit) {
           fLong *= limit / mag;
           fLat *= limit / mag;
         }
-        power += Math.max(0, fLong * u);
+        power += Math.abs(fLong * u) / DRIVE_EFFICIENCY;
+        traction += fLong;
         // Motion resistance grows with how far the track sinks.
         fLong -= (0.04 + 0.3 * cellSink) * normalForce * Math.tanh(vLong / 0.2);
 
@@ -273,12 +342,11 @@ export class Snowcat {
           y,
           z,
         );
-        groundSpeed += vLong;
         touching++;
-        gripSum += mu;
+        gripSum += grip;
         if (cellSink > sink) sink = cellSink;
       }
-      this.sideGroundSpeed[side] = touching > 0 ? groundSpeed / touching : this.trackSpeed[side]!;
+      this.sideForce[side] = traction;
       grounded += touching;
     }
 
@@ -441,18 +509,32 @@ export class Snowcat {
     // Tiller: mill and re-lay the surface, leaving corduroy. Quality falls off when driven too fast.
     this.groomQuality = 0;
     if (this.tillerWorking && vf > 0.2 && this.groundedContacts > 0) {
-      const quality = clamp01(1 - (vf - 4.2) / 2.5);
+      const quality = clamp01(1 - (vf - spec.cleanSpeedMs) / 2.5);
       this.groomQuality = quality;
       const q = Math.max(1, Math.round(255 * quality));
-      const samples = Math.round((spec.tillerHalfWidthM * 2) / 0.2);
+      const half = spec.tillerHalfWidthM;
+      b.toWorld(0, -spec.trackBottomM, spec.tillerZ);
+      const cx = b.px + b.ox;
+      const cz = b.pz + b.oz;
+      // Lateral axis on the ground, to test which cells the drum actually covers.
+      b.toWorld(1, 0, 0);
+      const al = 1 / Math.max(1e-6, Math.hypot(b.ox, b.oz));
+      const ax = b.ox * al;
+      const az = b.oz * al;
+      const cell = snow.grid.cellM;
+      const samples = Math.round((half * 2) / 0.2);
       for (let k = 0; k <= samples; k++) {
-        const lx = (k / samples - 0.5) * 2 * spec.tillerHalfWidthM;
-        b.toWorld(lx, -spec.trackBottomM, spec.tillerZ);
-        const x = b.px + b.ox;
-        const z = b.pz + b.oz;
+        const lx = (k / samples - 0.5) * 2 * half;
+        const x = cx + ax * lx;
+        const z = cz + az * lx;
         if (!snow.grid.contains(x, z)) continue;
-        snow.till(snow.grid.nearest(x, z), q);
         snow.markSurface(x, z, q, 0, dirX, dirZ);
+        // A cell counts as tilled only if its centre lies under the drum, so groomed area
+        // matches the tiller's real width instead of rounding up to whole cells.
+        const i = snow.grid.nearest(x, z);
+        const ix = i % snow.grid.n;
+        const iz = (i - ix) / snow.grid.n;
+        if (Math.abs((ix * cell - cx) * ax + (iz * cell - cz) * az) <= half) snow.till(i, q);
       }
     }
   }

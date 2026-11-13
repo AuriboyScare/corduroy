@@ -10,7 +10,7 @@ function makeWorld(slopeDeg: number, density = 115, top = 0.25): World {
   const mountain = createTestSlope(257, slopeDeg);
   const snow = new Snowpack(mountain);
   snow.fillUniform(0.5, top, density);
-  return new World(mountain, snow);
+  return new World(mountain, snow, { fleet: ['kestrel-420'] });
 }
 
 function run(world: World, seconds: number, input: SnowcatInput): void {
@@ -108,6 +108,39 @@ describe('Snowcat', () => {
     let highest = 0;
     for (let iz = 100; iz < 104; iz++) highest = Math.max(highest, snow.top[128 + iz * n]!);
     expect(highest).toBeLessThan(0.3);
+  });
+
+  it('spawns square to a slope and drives straight up it without rearing', () => {
+    for (const slope of [15, 22]) {
+      const world = makeWorld(slope, 450);
+      const cat = world.cat;
+      expect((cat.pitch * 180) / Math.PI).toBeCloseTo(slope, 0);
+      expect(Math.abs(cat.roll)).toBeLessThan(0.01);
+      const z = cat.body.pz;
+      let steepestPitch = 0;
+      for (let i = 0; i < 600; i++) {
+        world.step({ ...idle, throttle: 1 });
+        steepestPitch = Math.max(steepestPitch, cat.pitch);
+      }
+      // Never rears more than a few degrees beyond the slope itself, and makes real progress.
+      expect((steepestPitch * 180) / Math.PI).toBeLessThan(slope + 5);
+      expect(z - cat.body.pz).toBeGreaterThan(25);
+      expect(Math.abs(cat.heading - Math.PI)).toBeLessThan(0.05);
+    }
+  });
+
+  it('spawns level across a side slope', () => {
+    const mountain = createTestSlope(257, 18);
+    const snow = new Snowpack(mountain);
+    snow.fillUniform(0.5, 0.25, 450);
+    const world = new World(mountain, snow, { fleet: ['kestrel-420'] });
+    world.cat.place(128, 128, Math.PI / 2, snow);
+    // Facing +x across a slope that rises toward -z: the left side (toward -z) is uphill.
+    expect((world.cat.roll * 180) / Math.PI).toBeCloseTo(18, 0);
+    expect(Math.abs(world.cat.pitch)).toBeLessThan(0.01);
+    const y = world.cat.body.py;
+    for (let i = 0; i < 120; i++) world.step(idle);
+    expect(Math.abs(world.cat.body.py - y)).toBeLessThan(0.1);
   });
 
   it('stays finite over a long mixed drive', () => {
