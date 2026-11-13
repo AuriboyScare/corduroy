@@ -12,7 +12,7 @@ Each of these is covered by automated tests and was checked in screenshots of th
 - **Autopilot** that follows a path; it grooms the whole piste up and down in the integration test.
 - **Rendering**: chunked terrain with four detail levels, rebuilt where snow changes; snow material that separates powder, track marks and corduroy near and far; sky, sun shadows, haze; instanced forest with two detail levels; procedural snowcat model with animated cleats, wheels, blade linkage and tiller.
 - **Game**: chase, cab and free-fly cameras; keyboard driving; instrument HUD; synthesized engine, track, tiller and hydraulic sound.
-- **Tooling**: 27 unit and integration tests, 5 browser and Electron tests, CI, hooks, agents, skills, `tools/shot.mjs` (screenshots) and `tools/bench.mjs` (frame pacing).
+- **Tooling**: 31 unit and integration tests, 6 browser and Electron tests (one of them also runs in CI), CI, hooks, agents, skills, `tools/shot.mjs` (screenshots) and `tools/bench.mjs` (frame pacing).
 
 ## In progress
 
@@ -24,6 +24,8 @@ Each of these is covered by automated tests and was checked in screenshots of th
 - Lifts, terrain park editor, snowmaking, weather and time of day, AI visitors, buildings, economy, multiplayer, menus, settings and graphics presets, skiing and on-foot movement, winch, other vehicles, terrain editing.
 
 ## Known bugs and limitations
+
+- Fixed 2026-11-13: two presses of the same key inside one frame counted as one (seen in CI at 1 fps; possible on the Mac during a hitch).
 
 - The simulation runs on the main thread, not in a worker, and there is no host/client command layer yet. The simulation code is already free of rendering and browser dependencies, so this is a wiring task.
 - The parked machine creeps slowly on steep slopes (about 1 m per minute at 15 degrees); there is no parking brake.

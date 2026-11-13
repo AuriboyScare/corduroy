@@ -23,5 +23,8 @@ description: How to test Corduroy. Use when adding or changing tests, when a che
 - A feature is not done until a test fails without it.
 - Visual work also needs a screenshot you have opened and looked at. `expectRenderedImage` in `tests/e2e/boot.spec.ts` only proves the frame is not blank.
 - e2e fails on any console error or failed request. Fix the cause; do not filter the message.
-- Local e2e uses installed Chrome (`channel: 'chrome'`), not Playwright's Chromium, to save disk. CI sets `CI=1`, runs headless without a GPU, and so exercises WebGL2 only. The Electron test is skipped there.
+- Local e2e uses installed Chrome (`channel: 'chrome'`), not Playwright's Chromium, to save disk.
+- CI sets `CI=1` and runs headless without a GPU. The game renders there in software at about 1 fps, so only the smoke test (`boots, shows the HUD and simulates`) runs in CI. It drives the simulation through `fastForward` instead of real time. Every test that plays in real time or captures frames calls `test.skip(ci, 'needs a GPU')` and runs on the development Mac.
+- To reproduce CI locally, point a temporary Playwright config at installed Chrome with `--use-angle=swiftshader --enable-unsafe-swiftshader`, headless, and run with `CI=1`.
+- Never wait a fixed time for gameplay to happen. Wait on a condition (`page.waitForFunction`) with a generous timeout; frame rate varies with machine load.
 - Use fixed seeds and a frozen clock for anything compared against a baseline.
