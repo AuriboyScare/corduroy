@@ -2,6 +2,7 @@
   "name": "corduroy",
   "version": "0.0.1",
   "private": true,
+  "license": "MIT",
   "description": "Ski resort operations and mountain simulator (three.js WebGPU)",
   "type": "module",
   "main": "electron/main.js",
