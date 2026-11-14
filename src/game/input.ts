@@ -1,4 +1,4 @@
-import type { SnowcatInput } from '../sim/vehicles/snowcat';
+import type { Snowcat, SnowcatInput } from '../sim/vehicles/snowcat';
 
 /** Keyboard and mouse state, sampled once per frame. */
 export class Input {
@@ -19,7 +19,8 @@ export class Input {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!this.down.has(e.code)) this.pressed.set(e.code, (this.pressed.get(e.code) ?? 0) + 1);
       this.down.add(e.code);
-      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      // F5 is the save key; stop it reloading the page.
+      if (e.code === 'Space' || e.code === 'F5' || e.code.startsWith('Arrow')) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
     window.addEventListener('blur', () => this.down.clear());
@@ -76,20 +77,52 @@ export class Input {
   }
 }
 
-/** Operator controls for the snowcat. The tiller is a latching switch. */
+/**
+ * Operator controls for the snowcat. The tiller is a latching switch. Cruise control, when the
+ * machine has it, latches the throttle at the speed it was engaged at; W overrides it while held
+ * and S cancels it.
+ */
 export class SnowcatControls {
   tillerDown = false;
-  private readonly state: SnowcatInput = { throttle: 0, steer: 0, bladeLift: 0, tillerDown: false };
+  /** Latched throttle while cruise control is engaged. */
+  cruise: number | null = null;
+  private readonly state: SnowcatInput = {
+    throttle: 0,
+    steer: 0,
+    bladeLift: 0,
+    tillerDown: false,
+    winchAdjust: 0,
+  };
 
-  read(input: Input, enabled: boolean): SnowcatInput {
-    if (enabled && input.wasPressed('KeyT')) this.tillerDown = !this.tillerDown;
+  read(input: Input, enabled: boolean, cat: Snowcat): SnowcatInput {
     const s = this.state;
-    s.throttle = enabled ? input.axis('KeyS', 'KeyW') + input.axis('ArrowDown', 'ArrowUp') : 0;
-    s.steer = enabled ? input.axis('KeyD', 'KeyA') + input.axis('ArrowRight', 'ArrowLeft') : 0;
-    s.throttle = Math.max(-1, Math.min(1, s.throttle));
-    s.steer = Math.max(-1, Math.min(1, s.steer));
-    s.bladeLift = enabled ? input.axis('KeyF', 'KeyR') : 0;
+    if (!enabled) {
+      s.throttle = this.cruise ?? 0;
+      s.steer = 0;
+      s.bladeLift = 0;
+      s.winchAdjust = 0;
+      s.tillerDown = this.tillerDown;
+      return s;
+    }
+    if (input.wasPressed('KeyT')) this.tillerDown = !this.tillerDown;
+    const manual = Math.max(-1, Math.min(1, input.axis('KeyS', 'KeyW') + input.axis('ArrowDown', 'ArrowUp')));
+    if (!cat.spec.cruiseControl) this.cruise = null;
+    else if (input.wasPressed('KeyV')) {
+      this.cruise =
+        this.cruise === null ? Math.max(0.1, Math.min(1, cat.forwardSpeed / cat.spec.maxForwardMs)) : null;
+    }
+    if (this.cruise !== null && manual < 0) this.cruise = null;
+    s.throttle = this.cruise !== null && manual <= 0 ? this.cruise : manual;
+    s.steer = Math.max(-1, Math.min(1, input.axis('KeyD', 'KeyA') + input.axis('ArrowRight', 'ArrowLeft')));
+    s.bladeLift = input.axis('KeyF', 'KeyR');
+    s.winchAdjust = input.axis('BracketLeft', 'BracketRight');
     s.tillerDown = this.tillerDown;
     return s;
+  }
+
+  /** Forget latched states, for when the player changes machine. */
+  reset(): void {
+    this.tillerDown = false;
+    this.cruise = null;
   }
 }

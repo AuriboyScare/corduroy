@@ -9,6 +9,14 @@ export const GROOMED_DENSITY = 450;
 /** Density loose snow reaches when pushed and dropped by a blade, kg/m3. */
 export const PUSHED_DENSITY = 380;
 
+/** Consolidated cover below which a tiller brings up stones and grass, m. */
+export const THIN_COVER_M = 0.12;
+/** Consolidated cover a tiller needs for a full-quality finish, m. */
+export const GOOD_COVER_M = 0.4;
+
+/** Steepest slope loose, pushed snow can hold before it slumps (about 38 degrees). */
+export const REPOSE_SLOPE = 0.78;
+
 /** Surface detail is stored in sparse square tiles, allocated where machines have worked. */
 export const TILE_M = 32;
 export const FINE_CELL_M = 0.25;
@@ -45,19 +53,35 @@ export class Snowpack {
 
   /** Fine tiles changed since the renderer last cleared this set. */
   readonly dirtyTiles = new Set<number>();
+  /**
+   * Per 32 m tile: 1 once anything in it differs from the natural snow cover. Saves store only
+   * these tiles; everything else is regenerated from the seed.
+   */
+  readonly changedTiles: Uint8Array;
   coarseDirty = false;
   /** Grid-cell rectangle whose surface height changed; empty when minX > maxX. */
   readonly dirtyRect = { minX: 1, minZ: 1, maxX: 0, maxZ: 0 };
 
   /** Piste cells currently groomed. */
   groomedPisteCells = 0;
-  private readonly pisteMask: Uint8Array;
+  /** Groomed cells per run section; index is section + 1, slot 0 counts nothing. */
+  readonly groomedBySection: Int32Array;
+  /**
+   * Newly groomed area per section since the last call to takeGroomCredit(), in cells weighted
+   * by grooming quality (0..1). This is what grooming pays for.
+   */
+  readonly groomCredit: Float64Array;
+  private readonly sectionOf: Uint16Array;
+  private readonly runOf: Uint8Array;
   private readonly cellArea: number;
 
   constructor(mountain: Mountain) {
     this.grid = mountain.grid;
     this.ground = mountain.ground;
-    this.pisteMask = mountain.pisteMask;
+    this.sectionOf = mountain.sectionOf;
+    this.runOf = mountain.runOf;
+    this.groomedBySection = new Int32Array(mountain.sections.length + 1);
+    this.groomCredit = new Float64Array(mountain.sections.length + 1);
     const count = this.grid.count;
     this.base = new Float32Array(count);
     this.top = new Float32Array(count);
@@ -65,6 +89,7 @@ export class Snowpack {
     this.groomed = new Uint8Array(count);
     this.cellArea = this.grid.cellM * this.grid.cellM;
     this.tilesPerSide = Math.ceil(this.grid.sizeM / TILE_M);
+    this.changedTiles = new Uint8Array(this.tilesPerSide * this.tilesPerSide);
     this.tiles = new Array<Uint8Array | null>(this.tilesPerSide * this.tilesPerSide).fill(null);
     this.coarseN = Math.ceil(this.grid.sizeM / COARSE_CELL_M);
     this.coarse = new Uint8Array(this.coarseN * this.coarseN * 4);
@@ -95,8 +120,10 @@ export class Snowpack {
         const slope = Math.hypot(xr - xl, zd - zu) / (2 * this.grid.cellM);
         const hold = 1 - smoothstep(0.85, 1.35, slope);
         const drift = fbm2(ix / 38, iz / 38, seed + 40, 3);
-        if (this.pisteMask[i]) {
-          this.base[i] = 0.55;
+        if (this.runOf[i]) {
+          // Runs keep a packed base, but it is thin low down near the valley: those stretches
+          // need snowmaking before they can be groomed well.
+          this.base[i] = 0.12 + 0.43 * smoothstep(15, 200, g[i]!);
           this.top[i] = 0.24 + 0.03 * drift;
           this.density[i] = 115;
         } else {
@@ -146,6 +173,16 @@ export class Snowpack {
     const rho = this.density[i]!;
     const top = this.top[i]!;
     return this.ground[i]! + this.base[i]! + (rho < compactedDensity ? (top * rho) / compactedDensity : top);
+  }
+
+  /** Depth of the cover as if all of it were consolidated base, m: what holds up to grooming. */
+  coverDepth(i: number): number {
+    return this.base[i]! + (this.top[i]! * this.density[i]!) / BASE_DENSITY;
+  }
+
+  /** How well a tiller can work a cell, 0..1: thin cover means stones and a poor finish. */
+  coverQuality(i: number): number {
+    return clamp01((this.coverDepth(i) - THIN_COVER_M) / (GOOD_COVER_M - THIN_COVER_M));
   }
 
   /** Total snow mass on the ground, kg. */
@@ -210,7 +247,7 @@ export class Snowpack {
    */
   till(i: number, quality: number): void {
     if (this.groomed[i]! > 0) {
-      if (quality > this.groomed[i]!) this.groomed[i] = quality;
+      if (quality > this.groomed[i]!) this.setGroomed(i, quality);
       return;
     }
     const top = this.top[i]!;
@@ -226,6 +263,49 @@ export class Snowpack {
     this.touch(i);
   }
 
+  /**
+   * Lets loose snow slump around (x, z) until no slope between neighbouring cells exceeds the
+   * angle of repose, moving top-layer snow downhill. Only the top layer moves, and mass is
+   * conserved. Call after piling snow up (blade spills and dumps).
+   */
+  relaxAround(x: number, z: number, radiusM: number): void {
+    const grid = this.grid;
+    const n = grid.n;
+    const cell = grid.cellM;
+    const area = cell * cell;
+    const r = Math.ceil(radiusM / cell);
+    const cx = Math.round(x / cell);
+    const cz = Math.round(z / cell);
+    const x0 = Math.max(1, cx - r);
+    const x1 = Math.min(n - 2, cx + r);
+    const z0 = Math.max(1, cz - r);
+    const z1 = Math.min(n - 2, cz + r);
+    const limit = REPOSE_SLOPE * cell;
+    const offsets = [1, -1, n, -n];
+    for (let pass = 0; pass < 24; pass++) {
+      let moved = false;
+      for (let iz = z0; iz <= z1; iz++) {
+        for (let ix = x0; ix <= x1; ix++) {
+          const i = ix + iz * n;
+          for (const d of offsets) {
+            const j = i + d;
+            const drop = this.surface(i) - this.surface(j);
+            if (drop <= limit + 1e-4) continue;
+            // Move half the excess (enough to level that pair to the limit), but only loose snow.
+            const depth = Math.min(this.top[i]!, (drop - limit) / 2);
+            if (depth <= 1e-5) continue;
+            const mass = depth * this.density[i]! * area;
+            this.top[i]! -= depth;
+            this.deposit(j, mass, this.density[i]!);
+            this.touch(i);
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
   /** A track ran over the cell: compacts it and spoils any grooming. */
   trackOver(i: number, compactedDensity: number): void {
     this.compact(i, compactedDensity);
@@ -234,14 +314,57 @@ export class Snowpack {
 
   private setGroomed(i: number, quality: number): void {
     const was = this.groomed[i]!;
-    if (this.pisteMask[i]) {
-      if (was === 0 && quality > 0) this.groomedPisteCells++;
-      else if (was > 0 && quality === 0) this.groomedPisteCells--;
+    if (was !== quality) this.markChanged(i);
+    const section = this.sectionOf[i]!;
+    if (section > 0) {
+      if (was === 0 && quality > 0) {
+        this.groomedPisteCells++;
+        this.groomedBySection[section]!++;
+        this.groomCredit[section]! += quality / 255;
+      } else if (was > 0 && quality === 0) {
+        this.groomedPisteCells--;
+        this.groomedBySection[section]!--;
+      } else if (quality > was) {
+        // A better pass over existing grooming earns the improvement.
+        this.groomCredit[section]! += (quality - was) / 255;
+      }
     }
     this.groomed[i] = quality;
   }
 
+  /** Recounts groomed cells per section after the grid has been restored from a save. */
+  recountGrooming(): void {
+    this.groomedBySection.fill(0);
+    this.groomedPisteCells = 0;
+    for (let i = 0; i < this.groomed.length; i++) {
+      const section = this.sectionOf[i]!;
+      if (section > 0 && this.groomed[i]! > 0) {
+        this.groomedBySection[section]!++;
+        this.groomedPisteCells++;
+      }
+    }
+    this.groomCredit.fill(0);
+  }
+
+  /** Copies the pending groom credit per section into `out` and resets it. */
+  takeGroomCredit(out: Float64Array): void {
+    out.set(this.groomCredit);
+    this.groomCredit.fill(0);
+  }
+
+  /** Marks the save tile holding cell i as changed. */
+  private markChanged(i: number): void {
+    const n = this.grid.n;
+    const ix = i % n;
+    const iz = (i - ix) / n;
+    const cell = this.grid.cellM;
+    const tx = Math.min(this.tilesPerSide - 1, Math.floor((ix * cell) / TILE_M));
+    const tz = Math.min(this.tilesPerSide - 1, Math.floor((iz * cell) / TILE_M));
+    this.changedTiles[tx + tz * this.tilesPerSide] = 1;
+  }
+
   private touch(i: number): void {
+    this.markChanged(i);
     const n = this.grid.n;
     const ix = i % n;
     const iz = (i - ix) / n;

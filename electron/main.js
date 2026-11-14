@@ -1,6 +1,7 @@
-import { app, BrowserWindow, net, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, net, protocol } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { listBackups, readBackup, readSave, writeSave } from './saveStore.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dist = path.join(root, 'dist');
@@ -27,18 +28,42 @@ function serveDist() {
   });
 }
 
+const savesDir = () => process.env.CORDUROY_SAVES_DIR ?? path.join(app.getPath('userData'), 'saves');
+
+ipcMain.handle('saves:read', (_event, name) => readSave(savesDir(), name));
+ipcMain.handle('saves:write', (_event, name, bytes) => writeSave(savesDir(), name, bytes));
+ipcMain.handle('saves:backups', (_event, name) => listBackups(savesDir(), name));
+ipcMain.handle('saves:readBackup', (_event, file) => readBackup(savesDir(), file));
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1600,
     height: 900,
     backgroundColor: '#0b1016',
     title: 'Corduroy',
+    // Tests open the app without showing it, so it never takes focus from the person at the Mac.
+    show: process.env.CORDUROY_HIDDEN !== '1',
     webPreferences: {
+      backgroundThrottling: process.env.CORDUROY_HIDDEN !== '1',
       preload: path.join(root, 'electron', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  // Closing the window first asks the game to save; it answers on 'app:quit-ready'. If it does
+  // not answer within a few seconds the window closes anyway.
+  let quitting = false;
+  window.on('close', (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    quitting = true;
+    const fallback = setTimeout(() => window.destroy(), 8000);
+    ipcMain.once('app:quit-ready', () => {
+      clearTimeout(fallback);
+      window.destroy();
+    });
+    window.webContents.send('app:before-quit');
   });
   const query = process.env.CORDUROY_QUERY ?? '';
   window.loadURL((devUrl ?? 'app://corduroy/') + query);

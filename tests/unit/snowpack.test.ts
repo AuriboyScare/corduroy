@@ -22,7 +22,13 @@ describe('Snowpack', () => {
       else if (op < 0.55) carried -= snow.fillTo(i, snow.surface(i) + rng() * 0.3, carried, PUSHED_DENSITY);
       else if (op < 0.7) snow.compact(i, 200 + rng() * 200);
       else if (op < 0.85) snow.till(i, 200);
-      else snow.trackOver(i, 300);
+      else if (op < 0.95) snow.trackOver(i, 300);
+      else
+        snow.relaxAround(
+          (i % snow.grid.n) * snow.grid.cellM,
+          Math.floor(i / snow.grid.n) * snow.grid.cellM,
+          2,
+        );
     }
     expect(carried).toBeGreaterThanOrEqual(0);
     expect((snow.totalMassKg() + carried) / start).toBeCloseTo(1, 5);
@@ -30,6 +36,29 @@ describe('Snowpack', () => {
       expect(snow.top[i]).toBeGreaterThanOrEqual(0);
       expect(snow.base[i]).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('lets a tall pile of loose snow slump to the angle of repose, conserving mass', () => {
+    const snow = make();
+    const n = snow.grid.n;
+    const centre = 32 + 32 * n;
+    snow.deposit(centre, 4000, 380);
+    const mass = snow.totalMassKg();
+    expect(snow.surface(centre) - snow.surface(centre + 1)).toBeGreaterThan(2);
+    snow.relaxAround(32, 32, 6);
+    expect(snow.totalMassKg() / mass).toBeCloseTo(1, 6);
+    let steepest = 0;
+    for (let iz = 20; iz < 45; iz++) {
+      for (let ix = 20; ix < 45; ix++) {
+        const i = ix + iz * n;
+        steepest = Math.max(
+          steepest,
+          Math.abs(snow.surface(i) - snow.surface(i + 1)),
+          Math.abs(snow.surface(i) - snow.surface(i + n)),
+        );
+      }
+    }
+    expect(steepest).toBeLessThan(0.8);
   });
 
   it('compaction lowers the surface and never reduces density', () => {

@@ -29,11 +29,19 @@ export class RigidBody {
   private tz = 0;
 
   constructor(
-    readonly mass: number,
-    readonly ix: number,
-    readonly iy: number,
-    readonly iz: number,
+    public mass: number,
+    public ix: number,
+    public iy: number,
+    public iz: number,
   ) {}
+
+  /** Changes mass and principal moments of inertia (body frame), keeping position and motion. */
+  setMass(mass: number, ix: number, iy: number, iz: number): void {
+    this.mass = mass;
+    this.ix = ix;
+    this.iy = iy;
+    this.iz = iz;
+  }
 
   /** Rotates a body-frame vector into the world frame (result in ox, oy, oz). */
   toWorld(x: number, y: number, z: number): void {
@@ -126,6 +134,20 @@ export class RigidBody {
 
     this.fx = this.fy = this.fz = 0;
     this.tx = this.ty = this.tz = 0;
+  }
+
+  /** Turns the body by `angle` about one of its own (body-frame) unit axes. */
+  rotateLocal(ax: number, ay: number, az: number, angle: number): void {
+    const s = Math.sin(angle / 2);
+    const bx = ax * s;
+    const by = ay * s;
+    const bz = az * s;
+    const bw = Math.cos(angle / 2);
+    const { qx, qy, qz, qw } = this;
+    this.qx = qw * bx + qx * bw + qy * bz - qz * by;
+    this.qy = qw * by - qx * bz + qy * bw + qz * bx;
+    this.qz = qw * bz + qx * by - qy * bx + qz * bw;
+    this.qw = qw * bw - qx * bx - qy * by - qz * bz;
   }
 
   /** Sets orientation to a rotation about +y (heading) and zeroes motion. */

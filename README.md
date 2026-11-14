@@ -14,7 +14,20 @@ npm run build && npm run app   # desktop app (Electron)
 
 ## Controls
 
-W/S drive, A/D steer, R/F blade up/down, T tiller, C camera (chase, cab, free fly), drag to look, scroll to zoom, M sound, H help.
+| Key      | Action                                      |
+| -------- | ------------------------------------------- |
+| W / S    | Drive forward / reverse                     |
+| A / D    | Steer (pivots when stopped)                 |
+| R / F    | Blade up / down                             |
+| T        | Tiller down and running / up                |
+| V        | Cruise control (when fitted)                |
+| Y, [ / ] | Winch hook / unhook, tension (Kestrel 600W) |
+| G        | Garage: machines and upgrades               |
+| L        | Lifts: build and operate                    |
+| N        | Snowmaking                                  |
+| C        | Camera: chase, cab, free fly                |
+| F5       | Save                                        |
+| M, H     | Sound, help                                 |
 
 Needs a WebGPU-capable browser (Chrome on Apple Silicon is the target). A WebGL2 fallback runs with reduced features.
 

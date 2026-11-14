@@ -1,6 +1,7 @@
 import { h, render } from 'preact';
 import { startGame, type GameDebug } from './game/game';
 import { loadingMessage } from './game/hudState';
+import { openSaveStore } from './platform/saveStore';
 import { createRenderer, type BootInfo } from './render/createRenderer';
 import { Hud } from './ui/Hud';
 
@@ -21,10 +22,21 @@ const uiRoot = document.getElementById('ui') as HTMLElement;
 
 async function boot(): Promise<void> {
   render(h(Hud, {}), uiRoot);
-  const { renderer, info } = await createRenderer({ canvas, forceWebGL: params.get('gl') === '1' });
+  const [{ renderer, info }, store] = await Promise.all([
+    createRenderer({ canvas, forceWebGL: params.get('gl') === '1' }),
+    openSaveStore(),
+  ]);
   const bridge: DebugBridge = { boot: info };
   if (params.get('debug') === '1') window.__corduroy = bridge;
-  bridge.game = await startGame(renderer, canvas, Number(params.get('seed') ?? 11));
+  // ?mode=career|sandbox skips the menu with a fresh game; add &resume=1 to load that mode's save.
+  const mode = params.get('mode');
+  bridge.game = await startGame({
+    renderer,
+    canvas,
+    seed: Number(params.get('seed') ?? 11),
+    choice: mode === 'career' || mode === 'sandbox' ? { mode, resume: params.get('resume') === '1' } : null,
+    store,
+  });
 }
 
 boot().catch((error: unknown) => {

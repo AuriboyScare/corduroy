@@ -12,7 +12,7 @@ const opt = (name, fallback) => {
 const [width, height] = opt('size', '1600x900').split('x').map(Number);
 const browser = await chromium.launch({
   channel: 'chrome',
-  headless: false,
+  headless: true,
   args: ['--enable-unsafe-webgpu'],
 });
 const page = await browser.newPage({ viewport: { width, height } });

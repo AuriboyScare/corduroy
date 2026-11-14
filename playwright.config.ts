@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
-// GPU tests run headed on the development Mac (WebGPU via Metal). CI sets CI=1 and
-// runs the same specs headless, where the renderer falls back to WebGL2.
+// Everything runs headless so test windows never take keyboard focus from whoever is using the
+// Mac (stray keystrokes into a visible test window made tests fail at random). Headless Chrome
+// still gets WebGPU on Metal there. CI runners have no GPU and fall back to WebGL2.
 const ci = !!process.env.CI;
 
 export default defineConfig({
@@ -12,7 +13,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:5198',
     viewport: { width: 1280, height: 720 },
-    headless: ci,
+    headless: true,
     // Locally use the installed Chrome (the real target browser); CI installs Playwright's Chromium.
     ...(ci ? {} : { channel: 'chrome' }),
     launchOptions: {

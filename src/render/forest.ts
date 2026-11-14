@@ -10,22 +10,104 @@ import {
   Quaternion,
   Vector3,
 } from 'three/webgpu';
+import { hash2 } from '../sim/rng';
 import type { Snowpack } from '../sim/snow/snowpack';
 import { TREE_STRIDE, type Mountain } from '../sim/terrain/mountain';
 
 const GROUP_M = 128;
 const NEAR_RANGE_M = 300;
 
-const NEEDLE = [0.045, 0.1, 0.065] as const;
-const NEEDLE_LIT = [0.1, 0.19, 0.11] as const;
-const SNOW = [0.86, 0.9, 0.96] as const;
 const BARK = [0.16, 0.11, 0.08] as const;
+const PINE_BARK = [0.3, 0.19, 0.12] as const;
+const SNOW = [0.86, 0.9, 0.96] as const;
+
+/** Shape of one conifer species; trees are built at unit height and scaled per instance. */
+interface Species {
+  readonly name: string;
+  /** Branch tiers from the crown base to the top. */
+  readonly tiers: number;
+  /** Fraction of the height that is bare trunk below the crown. */
+  readonly crownBase: number;
+  /** Crown radius at its base, as a fraction of height. */
+  readonly radius: number;
+  /** >1 broadens the lower crown (fir), <1 rounds it off (pine). */
+  readonly taper: number;
+  /** How far the bough tips hang below their tier. */
+  readonly droop: number;
+  /** How uneven the bough lengths are. */
+  readonly ragged: number;
+  /** Share of each tier's upper surface carrying snow. */
+  readonly snow: number;
+  readonly needle: readonly [number, number, number];
+  readonly needleLit: readonly [number, number, number];
+  readonly bark: readonly [number, number, number];
+  readonly trunkRadius: number;
+}
+
+const SPRUCE: Species = {
+  name: 'spruce',
+  tiers: 12,
+  crownBase: 0.07,
+  radius: 0.17,
+  taper: 0.92,
+  droop: 0.035,
+  ragged: 0.32,
+  snow: 0.55,
+  needle: [0.025, 0.06, 0.045],
+  needleLit: [0.05, 0.1, 0.07],
+  bark: BARK,
+  trunkRadius: 0.022,
+};
+
+const FIR: Species = {
+  name: 'fir',
+  tiers: 10,
+  crownBase: 0.1,
+  radius: 0.2,
+  taper: 1.15,
+  droop: 0.015,
+  ragged: 0.22,
+  snow: 0.75,
+  needle: [0.03, 0.065, 0.055],
+  needleLit: [0.06, 0.11, 0.085],
+  bark: BARK,
+  trunkRadius: 0.024,
+};
+
+const PINE: Species = {
+  name: 'pine',
+  tiers: 7,
+  crownBase: 0.42,
+  radius: 0.2,
+  taper: 0.55,
+  droop: 0.01,
+  ragged: 0.45,
+  snow: 0.45,
+  needle: [0.035, 0.06, 0.035],
+  needleLit: [0.07, 0.105, 0.06],
+  bark: PINE_BARK,
+  trunkRadius: 0.02,
+};
+
+/** Deterministic pseudo-random sequence for tree shapes. */
+function shapeRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
 
 /**
- * Snow-laden spruce of unit height: a trunk and stacked drooping branch tiers. Each tier is
- * green at its ragged outer tips and carries snow toward the trunk, where it would settle.
+ * A snow-laden conifer of unit height: a trunk and stacked drooping bough tiers with uneven tips.
+ * Each tier is green at its ragged rim and underneath, and carries patchy snow on top.
  */
-function createSpruce(tiers: number, segments: number, rings: number): BufferGeometry {
+function createConifer(species: Species, detail: 'near' | 'far', seed: number): BufferGeometry {
+  const near = detail === 'near';
+  const tiers = near ? species.tiers : Math.max(4, Math.round(species.tiers / 2));
+  const segments = near ? 11 : 6;
+  const rings = near ? 4 : 2;
+  const rnd = shapeRng(seed);
   const position: number[] = [];
   const color: number[] = [];
   const index: number[] = [];
@@ -35,39 +117,73 @@ function createSpruce(tiers: number, segments: number, rings: number): BufferGeo
     return position.length / 3 - 1;
   };
 
-  // Trunk.
+  // Trunk, visible below the crown (and through gaps in a pine's).
+  const trunkTop = 1 - 0.12;
   const trunkBase: number[] = [];
-  const trunkTop: number[] = [];
-  for (let s = 0; s < 6; s++) {
-    const a = (s / 6) * Math.PI * 2;
-    trunkBase.push(push(Math.cos(a) * 0.022, -0.02, Math.sin(a) * 0.022, BARK));
-    trunkTop.push(push(Math.cos(a) * 0.014, 0.42, Math.sin(a) * 0.014, BARK));
+  const trunkUp: number[] = [];
+  const sides = near ? 7 : 5;
+  for (let s = 0; s < sides; s++) {
+    const a = (s / sides) * Math.PI * 2;
+    trunkBase.push(
+      push(Math.cos(a) * species.trunkRadius, -0.02, Math.sin(a) * species.trunkRadius, species.bark),
+    );
+    trunkUp.push(
+      push(
+        Math.cos(a) * species.trunkRadius * 0.35,
+        trunkTop,
+        Math.sin(a) * species.trunkRadius * 0.35,
+        species.bark,
+        0.8,
+      ),
+    );
   }
-  for (let s = 0; s < 6; s++) {
-    const t = (s + 1) % 6;
-    index.push(trunkBase[s]!, trunkTop[s]!, trunkBase[t]!, trunkBase[t]!, trunkTop[s]!, trunkTop[t]!);
+  for (let s = 0; s < sides; s++) {
+    const t = (s + 1) % sides;
+    index.push(trunkBase[s]!, trunkUp[s]!, trunkBase[t]!, trunkBase[t]!, trunkUp[s]!, trunkUp[t]!);
   }
 
-  // Branch tiers, widest at the bottom.
+  const crownHeight = 1 - species.crownBase;
   for (let k = 0; k < tiers; k++) {
     const f = k / tiers;
-    const yBottom = 0.1 + f * 0.82;
-    const tierHeight = (0.9 / tiers) * 1.9;
-    const yTop = Math.min(1, yBottom + tierHeight);
-    const radius = 0.165 * Math.pow(1 - f, 0.85) + 0.012;
+    // Tiers are not evenly spaced or level: each sits a little higher or lower and tilts.
+    const yBottom = species.crownBase + (f + (rnd() - 0.5) * (0.6 / tiers)) * crownHeight * 0.95;
+    const tiltX = (rnd() - 0.5) * 0.12;
+    const tiltZ = (rnd() - 0.5) * 0.12;
+    const tierHeight = (crownHeight / tiers) * (near ? 1.9 : 2.2);
+    const yTop = Math.min(1.02, yBottom + tierHeight);
+    // Crown outline: conical for spruce and fir, rounded for pine.
+    const outline =
+      species.taper >= 1
+        ? Math.pow(1 - f, species.taper)
+        : Math.sin(Math.PI * Math.min(1, (1 - f) * 0.95 + 0.05)) * 0.8 + 0.2 * (1 - f);
+    const radius = species.radius * outline + 0.01;
+    const twist = rnd() * Math.PI * 2;
+    const reach: number[] = [];
+    for (let s = 0; s < segments; s++) reach.push(1 - species.ragged * 0.5 + species.ragged * rnd());
     const ringIds: number[][] = [];
     for (let r = 0; r < rings; r++) {
       const t = r / (rings - 1);
       const ids: number[] = [];
       for (let s = 0; s < segments; s++) {
-        const a = ((s + (k % 2) * 0.5) / segments) * Math.PI * 2;
-        // Ragged rim: alternate boughs reach further and hang lower.
-        const reach = r === 0 ? (s % 2 === 0 ? 1.12 : 0.84) : 1;
-        const rad = radius * (1 - t) ** 1.15 * reach + 0.006;
-        const droop = r === 0 ? (s % 2 === 0 ? -0.022 : 0.004) : 0;
-        const y = yBottom + (yTop - yBottom) * t + droop;
-        const c = r === 0 ? NEEDLE : t < 0.5 ? NEEDLE_LIT : SNOW;
-        ids.push(push(Math.cos(a) * rad, y, Math.sin(a) * rad, c, r === 0 ? 1 : 1 - 0.1 * f));
+        const a = twist + (s / segments) * Math.PI * 2;
+        // Boughs reach further at the rim; alternate tips hang lower.
+        const tip = r === 0 ? reach[s]! : 1 - (1 - reach[s]!) * (1 - t);
+        const rad = radius * Math.pow(1 - t, 1.15) * tip + 0.006;
+        const hang = r === 0 ? -species.droop * (0.5 + reach[s]!) * (1 - f * 0.6) : 0;
+        const bx = Math.cos(a) * rad;
+        const bz = Math.sin(a) * rad;
+        const y =
+          yBottom +
+          (yTop - yBottom) * Math.pow(t, 0.85) +
+          hang +
+          bx * tiltX +
+          bz * tiltZ +
+          (r === 0 ? (rnd() - 0.5) * 0.012 : 0);
+        let c: readonly number[];
+        if (r === 0) c = species.needle;
+        else if (t < 0.5) c = rnd() < species.snow * 0.5 ? SNOW : species.needleLit;
+        else c = rnd() < species.snow + 0.25 ? SNOW : species.needleLit;
+        ids.push(push(bx, y, bz, c, r === 0 ? 1 : 1 - 0.12 * f));
       }
       ringIds.push(ids);
     }
@@ -113,8 +229,9 @@ export function createForest(mountain: Mountain, snow: Snowpack): Forest {
     metalness: 0,
     side: DoubleSide,
   });
-  const detailed = createSpruce(9, 10, 3);
-  const simple = createSpruce(4, 6, 2);
+  const species = [SPRUCE, FIR, PINE];
+  const detailed = species.map((sp, k) => createConifer(sp, 'near', 17 + k * 101));
+  const simple = species.map((sp, k) => createConifer(sp, 'far', 17 + k * 101));
 
   const perSide = Math.ceil(mountain.grid.sizeM / GROUP_M);
   const buckets: number[][] = Array.from({ length: perSide * perSide }, () => []);
@@ -133,8 +250,14 @@ export function createForest(mountain: Mountain, snow: Snowpack): Forest {
   const tint = new Color();
   buckets.forEach((ids, bucket) => {
     if (ids.length === 0) return;
-    const near = new InstancedMesh(detailed, material, ids.length);
-    const far = new InstancedMesh(simple, material, ids.length);
+    // Each stand is one species: pine on the lower slopes, spruce and fir mixed higher up.
+    const bx = bucket % perSide;
+    const bz = Math.floor(bucket / perSide);
+    const altitude = snow.surfaceAt((bx + 0.5) * GROUP_M, (bz + 0.5) * GROUP_M);
+    const roll = hash2(bx, bz, mountain.seed + 91);
+    const kind = altitude < 140 ? (roll < 0.55 ? 2 : 0) : roll < 0.55 ? 0 : 1;
+    const near = new InstancedMesh(detailed[kind]!, material, ids.length);
+    const far = new InstancedMesh(simple[kind]!, material, ids.length);
     ids.forEach((t, k) => {
       const o = t * TREE_STRIDE;
       const x = mountain.trees[o]!;
@@ -148,7 +271,8 @@ export function createForest(mountain: Mountain, snow: Snowpack): Forest {
       matrix.compose(place, quaternion, scale);
       near.setMatrixAt(k, matrix);
       far.setMatrixAt(k, matrix);
-      const v = 0.82 + 0.3 * ((seed * 13.7) % 1);
+      // Conifers read nearly black-green against snow; the light bounced off the snow lifts them enough.
+      const v = 0.55 + 0.22 * ((seed * 13.7) % 1);
       tint.setRGB(v * (0.96 + 0.08 * ((seed * 3.1) % 1)), v, v * (0.94 + 0.1 * ((seed * 5.9) % 1)));
       near.setColorAt(k, tint);
       far.setColorAt(k, tint);

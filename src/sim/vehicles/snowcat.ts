@@ -28,6 +28,25 @@ export interface SnowcatSpec {
   readonly tillerHalfWidthM: number;
   readonly tillerZ: number;
   readonly tillerPowerW: number;
+  /** Outline used for inertia and collisions, m. */
+  readonly bodyWidthM: number;
+  readonly bodyHeightM: number;
+  readonly bodyLengthM: number;
+  /** How fast the blade rises or falls, m/s. */
+  readonly bladeRateMs: number;
+  /** How fast the tiller lowers or lifts, fraction of its travel per second. */
+  readonly tillerRate: number;
+  /** Fastest working speed at which the finisher still lays full-quality corduroy, m/s. */
+  readonly cleanSpeedMs: number;
+  /** Multiplier on track friction, from track and grouser options. */
+  readonly gripFactor: number;
+  /** Winch fitted: maximum line pull, N (0 = no winch). */
+  readonly winchPullN: number;
+  readonly winchCableM: number;
+  /** Cruise control fitted. */
+  readonly cruiseControl: boolean;
+  /** Work-light upgrade level: brighter, longer-reaching lights for night grooming. */
+  readonly workLights: number;
 }
 
 export const KESTREL_420: SnowcatSpec = {
@@ -47,6 +66,17 @@ export const KESTREL_420: SnowcatSpec = {
   tillerHalfWidthM: 2.7,
   tillerZ: -3.9,
   tillerPowerW: 70_000,
+  bodyWidthM: 4.4,
+  bodyHeightM: 2.6,
+  bodyLengthM: 8,
+  bladeRateMs: 0.45,
+  tillerRate: 1.3,
+  cleanSpeedMs: 4.2,
+  gripFactor: 1,
+  winchPullN: 0,
+  winchCableM: 0,
+  cruiseControl: false,
+  workLights: 0,
 };
 
 export interface SnowcatInput {
@@ -58,7 +88,28 @@ export interface SnowcatInput {
   bladeLift: number;
   /** Tiller commanded down and running. */
   tillerDown: boolean;
+  /** -1 lowers, 1 raises the winch tension setting. */
+  winchAdjust?: number;
 }
+
+export interface WinchPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/**
+ * Where the cable's pull acts on the frame: the drum, low on the engine deck, in Kestrel 420 body
+ * coordinates (scaled per machine). Pulling from higher up pitches the machine over when the
+ * cable runs out.
+ */
+const WINCH_DRUM = { y: 1.02, z: -1.55 } as const;
+/** Stiffness of the cable once it is fully paid out, N/m. */
+const CABLE_STOP_K = 1.5e5;
+/** The drum brake slips above this multiple of the winch's rated pull. */
+const CABLE_STOP_LIMIT = 2.2;
+/** Over the last stretch of cable the drive interlock slows travel away from the anchor, m. */
+const CABLE_END_RAMP_M = 15;
 
 export const BLADE_MIN_M = -0.3;
 export const BLADE_MAX_M = 0.9;
@@ -66,10 +117,14 @@ const GRAVITY = 9.81;
 const SUBSTEPS = 4;
 /** How far the bogies deflect under the machine's own weight; also their droop travel. */
 const SPRING_SAG_M = 0.12;
+/** Share of engine power that reaches the tracks through the hydrostatic drive. */
+const DRIVE_EFFICIENCY = 0.85;
+/** How quickly the drive can change belt speed, m/s². */
+const BELT_ACCEL_MS2 = 3.6;
 const BLADE_SAMPLES = 13;
 
 export class Snowcat {
-  readonly spec: SnowcatSpec;
+  spec: SnowcatSpec;
   readonly body: RigidBody;
   /** Track belt speeds, m/s. Index 0 is the left track. */
   readonly trackSpeed = new Float64Array(2);
@@ -91,31 +146,70 @@ export class Snowcat {
   grip = 0;
   /** Quality of the grooming being laid right now, 0..1; 0 when the tiller is not working. */
   groomQuality = 0;
+  /** Anchor the winch cable is hooked to; null when unhooked. */
+  winchAnchor: WinchPoint | null = null;
+  /** Tension setting as a share of the winch's maximum pull. */
+  winchSetting = 0.6;
+  /** Cable paid out, m. */
+  winchCableOutM = 0;
+  /** Pull the cable is exerting, N. */
+  winchForceN = 0;
+  /** Engine power the winch is drawing to reel in, W. */
+  private winchPowerW = 0;
+  /** Cable left on the drum, m; Infinity when unhooked. */
+  winchRemainingM = Infinity;
+  private winchAwayDot = 0;
 
-  private readonly springK: number;
-  private readonly springC: number;
-  private readonly sideGroundSpeed = new Float64Array(2);
+  private springK = 0;
+  private springC = 0;
+  /** Traction each track transmitted in the last substep, N. */
+  private readonly sideForce = new Float64Array(2);
+  private readonly beltTarget = new Float64Array(2);
   private cutRateKgS = 0;
 
   constructor(spec: SnowcatSpec = KESTREL_420) {
     this.spec = spec;
+    this.body = new RigidBody(spec.massKg, 1, 1, 1);
+    this.applySpec(spec);
+  }
+
+  /**
+   * Changes the machine's specification (after an upgrade) without moving it. Mass, inertia and
+   * suspension are recomputed so the machine still rests at the same ride height.
+   */
+  applySpec(spec: SnowcatSpec): void {
+    this.spec = spec;
     const m = spec.massKg;
-    // Box-like inertia for a machine about 4.4 m wide, 2.6 m tall and 8 m long with implements.
-    this.body = new RigidBody(
-      m,
-      (m * (2.6 ** 2 + 8 ** 2)) / 12,
-      (m * (4.4 ** 2 + 8 ** 2)) / 12,
-      (m * (4.4 ** 2 + 2.6 ** 2)) / 12,
-    );
+    const { bodyWidthM: w, bodyHeightM: h, bodyLengthM: l } = spec;
+    this.body.setMass(m, (m * (h * h + l * l)) / 12, (m * (w * w + l * l)) / 12, (m * (w * w + h * h)) / 12);
     const contacts = spec.contactZ.length * 2;
     this.springK = (m * GRAVITY) / contacts / SPRING_SAG_M;
     this.springC = 2 * 0.75 * Math.sqrt((this.springK * m) / contacts);
+    this.bladeHeightM = Math.max(BLADE_MIN_M, Math.min(BLADE_MAX_M, this.bladeHeightM));
+    this.bladeLoadKg = Math.min(this.bladeLoadKg, spec.bladeCapacityKg);
   }
 
   /** Parks the machine on the snow at a position. */
   place(x: number, z: number, heading: number, snow: Snowpack): void {
-    const y = snow.supportAt(x, z, this.spec.trackCompactionDensity) + this.spec.trackBottomM;
+    // Sit the tracks on the slope: pitch and roll from the snow under the ends and sides of the
+    // tracks, so no contact starts buried (which would throw the machine).
+    const spec = this.spec;
+    const rho = spec.trackCompactionDensity;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const reach = spec.contactZ[spec.contactZ.length - 1]!;
+    const side = spec.trackOffsetM;
+    const front = snow.supportAt(x + fx * reach, z + fz * reach, rho);
+    const rear = snow.supportAt(x - fx * reach, z - fz * reach, rho);
+    const left = snow.supportAt(x + fz * side, z - fx * side, rho);
+    const right = snow.supportAt(x - fz * side, z + fx * side, rho);
+    const noseUp = Math.atan2(front - rear, 2 * reach);
+    const leftUp = Math.atan2(left - right, 2 * side);
+    const y = (front + rear + left + right) / 4 + spec.trackBottomM / Math.cos(noseUp);
     this.body.reset(x, y, z, heading);
+    // Heading about +y, then nose-up pitch (a negative turn about +x), then roll about +z.
+    this.body.rotateLocal(1, 0, 0, -noseUp);
+    this.body.rotateLocal(0, 0, 1, leftUp);
     this.trackSpeed.fill(0);
   }
 
@@ -143,6 +237,11 @@ export class Snowcat {
     return Math.asin(Math.max(-1, Math.min(1, this.body.oy)));
   }
 
+  /** Snow the blade is cutting, kg/s (smoothed). */
+  get cutRate(): number {
+    return this.cutRateKgS;
+  }
+
   get tillerWorking(): boolean {
     return this.tillerPos > 0.95;
   }
@@ -151,9 +250,10 @@ export class Snowcat {
   step(dt: number, input: SnowcatInput, snow: Snowpack, obstacles: ObstacleQuery | null): void {
     this.bladeHeightM = Math.max(
       BLADE_MIN_M,
-      Math.min(BLADE_MAX_M, this.bladeHeightM + input.bladeLift * 0.45 * dt),
+      Math.min(BLADE_MAX_M, this.bladeHeightM + input.bladeLift * this.spec.bladeRateMs * dt),
     );
-    this.tillerPos = clamp01(this.tillerPos + (input.tillerDown ? 1 : -1) * 1.3 * dt);
+    this.tillerPos = clamp01(this.tillerPos + (input.tillerDown ? 1 : -1) * this.spec.tillerRate * dt);
+    if (input.winchAdjust) this.winchSetting = clamp01(this.winchSetting + input.winchAdjust * 0.4 * dt);
 
     const h = dt / SUBSTEPS;
     for (let s = 0; s < SUBSTEPS; s++) this.substep(h, input, snow, obstacles);
@@ -167,22 +267,37 @@ export class Snowcat {
     const b = this.body;
     const rhoC = spec.trackCompactionDensity;
 
-    // Drive: each belt chases its commanded speed; an overloaded engine drags belts back toward ground speed.
-    const base =
-      input.throttle >= 0 ? input.throttle * spec.maxForwardMs : input.throttle * spec.maxReverseMs;
+    // Drive: hydrostatic, so each belt chases its commanded speed but the engine can only supply
+    // so much power. When traction times belt speed would exceed it, both belts slow in
+    // proportion until it fits; the drive bogs down but never runs backwards on its own.
+    let base = input.throttle >= 0 ? input.throttle * spec.maxForwardMs : input.throttle * spec.maxReverseMs;
+    // Cable-end interlock: travel away from the anchor slows to a stop as the cable runs out.
+    if (this.winchAnchor && base * this.winchAwayDot > 0) {
+      base *= clamp01((this.winchRemainingM - 1) / CABLE_END_RAMP_M);
+    }
     const diff = input.steer * Math.max(1.3, Math.abs(base) * 0.55);
-    const over = Math.max(0, this.engineLoad - 1);
+    const available = Math.max(
+      0.1,
+      DRIVE_EFFICIENCY * spec.enginePowerW -
+        (this.tillerPos > 0.5 ? spec.tillerPowerW : 0) -
+        this.winchPowerW,
+    );
+    let demand = 0;
     for (let side = 0; side < 2; side++) {
       // The outer belt cannot exceed top speed, so a turn at speed slows the inner belt instead.
       const target = Math.max(
         -spec.maxForwardMs,
         Math.min(spec.maxForwardMs, base + (side === 0 ? -diff : diff)),
       );
-      let u = this.trackSpeed[side]!;
-      const step = 3.6 * h * (1 - Math.min(0.9, over * 2));
-      u += Math.max(-step, Math.min(step, target - u));
-      if (over > 0) u += (this.sideGroundSpeed[side]! - u) * Math.min(1, over * 6) * h * 5;
-      this.trackSpeed[side] = u;
+      this.beltTarget[side] = target;
+      demand += Math.abs(this.sideForce[side]! * target);
+    }
+    const scale = demand > available ? available / demand : 1;
+    const step = BELT_ACCEL_MS2 * h;
+    for (let side = 0; side < 2; side++) {
+      const u = this.trackSpeed[side]!;
+      const target = this.beltTarget[side]! * scale;
+      this.trackSpeed[side] = u + Math.max(-step, Math.min(step, target - u));
     }
 
     b.toWorld(0, 0, 1);
@@ -197,7 +312,7 @@ export class Snowcat {
     for (let side = 0; side < 2; side++) {
       const lx = side === 0 ? spec.trackOffsetM : -spec.trackOffsetM;
       const u = this.trackSpeed[side]!;
-      let groundSpeed = 0;
+      let traction = 0;
       let touching = 0;
       for (let c = 0; c < spec.contactZ.length; c++) {
         b.toWorld(lx, -spec.trackBottomM, spec.contactZ[c]!);
@@ -253,15 +368,17 @@ export class Snowcat {
 
         const vLong = pvx * tx + pvy * ty + pvz * tz;
         const vLat = pvx * lxw + pvy * lyw + pvz * lzw;
-        let fLong = mu * normalForce * Math.tanh((u - vLong) / 0.04);
-        let fLat = -0.9 * mu * normalForce * Math.tanh(vLat / 0.15);
-        const limit = mu * normalForce;
+        const grip = mu * spec.gripFactor;
+        let fLong = grip * normalForce * Math.tanh((u - vLong) / 0.04);
+        let fLat = -0.9 * grip * normalForce * Math.tanh(vLat / 0.15);
+        const limit = grip * normalForce;
         const mag = Math.hypot(fLong, fLat);
         if (mag > limit) {
           fLong *= limit / mag;
           fLat *= limit / mag;
         }
-        power += Math.max(0, fLong * u);
+        power += Math.abs(fLong * u) / DRIVE_EFFICIENCY;
+        traction += fLong;
         // Motion resistance grows with how far the track sinks.
         fLong -= (0.04 + 0.3 * cellSink) * normalForce * Math.tanh(vLong / 0.2);
 
@@ -273,12 +390,11 @@ export class Snowcat {
           y,
           z,
         );
-        groundSpeed += vLong;
         touching++;
-        gripSum += mu;
+        gripSum += grip;
         if (cellSink > sink) sink = cellSink;
       }
-      this.sideGroundSpeed[side] = touching > 0 ? groundSpeed / touching : this.trackSpeed[side]!;
+      this.sideForce[side] = traction;
       grounded += touching;
     }
 
@@ -298,6 +414,7 @@ export class Snowcat {
       }
     }
 
+    power += this.pullWinch();
     if (obstacles) this.collide(obstacles);
 
     // Keep the machine on the map.
@@ -319,6 +436,131 @@ export class Snowcat {
     this.groundedContacts = grounded;
     this.sinkM = sink;
     this.grip = grounded > 0 ? gripSum / grounded : 0;
+  }
+
+  /**
+   * Every value that carries from one step to the next, apart from the rigid body, implement
+   * positions and winch anchor (saved separately). Restoring it makes a loaded world continue
+   * exactly as the saved one would have.
+   */
+  captureDynamics(): number[] {
+    return [
+      this.trackSpeed[0]!,
+      this.trackSpeed[1]!,
+      this.sideForce[0]!,
+      this.sideForce[1]!,
+      this.beltTarget[0]!,
+      this.beltTarget[1]!,
+      this.engineLoad,
+      this.cutRateKgS,
+      this.groundedContacts,
+      this.sinkM,
+      this.grip,
+      this.groomQuality,
+      this.winchCableOutM,
+      this.winchForceN,
+      this.winchPowerW,
+      this.winchRemainingM === Infinity ? -1 : this.winchRemainingM,
+      this.winchAwayDot,
+    ];
+  }
+
+  restoreDynamics(values: readonly number[]): void {
+    if (values.length !== 17) throw new Error('saved machine state has the wrong length');
+    const v = values as number[];
+    this.trackSpeed[0] = v[0]!;
+    this.trackSpeed[1] = v[1]!;
+    this.sideForce[0] = v[2]!;
+    this.sideForce[1] = v[3]!;
+    this.beltTarget[0] = v[4]!;
+    this.beltTarget[1] = v[5]!;
+    this.engineLoad = v[6]!;
+    this.cutRateKgS = v[7]!;
+    this.groundedContacts = v[8]!;
+    this.sinkM = v[9]!;
+    this.grip = v[10]!;
+    this.groomQuality = v[11]!;
+    this.winchCableOutM = v[12]!;
+    this.winchForceN = v[13]!;
+    this.winchPowerW = v[14]!;
+    this.winchRemainingM = v[15]! < 0 ? Infinity : v[15]!;
+    this.winchAwayDot = v[16]!;
+  }
+
+  /** Hooks the winch cable to an anchor. */
+  hookWinch(anchor: WinchPoint): void {
+    this.winchAnchor = anchor;
+    this.winchCableOutM = Math.hypot(
+      anchor.x - this.body.px,
+      anchor.y - this.body.py,
+      anchor.z - this.body.pz,
+    );
+  }
+
+  unhookWinch(): void {
+    this.winchAnchor = null;
+    this.winchForceN = 0;
+    this.winchPowerW = 0;
+    this.winchRemainingM = Infinity;
+  }
+
+  /** World position of the winch drum, where the cable pulls (result in body.ox, oy, oz). */
+  winchFairlead(): void {
+    const scale = this.spec.bodyLengthM / 8;
+    const b = this.body;
+    b.toWorld(0, WINCH_DRUM.y * scale, WINCH_DRUM.z * scale);
+    b.ox += b.px;
+    b.oy += b.py;
+    b.oz += b.pz;
+  }
+
+  /**
+   * Constant-tension winch: the cable pays out or reels in to hold the set pull toward the
+   * anchor. Reeling in takes engine power; at full length the cable stops the machine.
+   * Returns the engine power drawn, W.
+   */
+  private pullWinch(): number {
+    const anchor = this.winchAnchor;
+    const spec = this.spec;
+    if (!anchor || spec.winchPullN <= 0) {
+      this.winchForceN = 0;
+      this.winchPowerW = 0;
+      return 0;
+    }
+    const b = this.body;
+    this.winchFairlead();
+    const x = b.ox;
+    const y = b.oy;
+    const z = b.oz;
+    let dx = anchor.x - x;
+    let dy = anchor.y - y;
+    let dz = anchor.z - z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 0.5) {
+      this.winchForceN = 0;
+      return 0;
+    }
+    dx /= d;
+    dy /= d;
+    dz /= d;
+    b.pointVelocity(x, y, z);
+    // Speed toward the anchor: positive while the winch reels in.
+    const closing = b.ox * dx + b.oy * dy + b.oz * dz;
+    let tension = this.winchSetting * spec.winchPullN;
+    if (d > spec.winchCableM) {
+      const damping = 0.6 * Math.sqrt(CABLE_STOP_K * spec.massKg);
+      const stop = CABLE_STOP_K * (d - spec.winchCableM) + damping * Math.max(0, -closing);
+      tension = Math.min(CABLE_STOP_LIMIT * spec.winchPullN, Math.max(tension, stop));
+    }
+    this.winchCableOutM = Math.min(d, spec.winchCableM);
+    this.winchRemainingM = spec.winchCableM - d;
+    b.toWorld(0, 0, 1);
+    // Positive when driving forward takes the machine away from the anchor.
+    this.winchAwayDot = -(b.ox * dx + b.oy * dy + b.oz * dz);
+    this.winchForceN = tension;
+    b.applyForceAt(tension * dx, tension * dy, tension * dz, x, y, z);
+    this.winchPowerW = Math.max(0, tension * closing) / DRIVE_EFFICIENCY;
+    return this.winchPowerW;
   }
 
   /** Pushes the hull out of tree trunks with a stiff penalty force. */
@@ -421,6 +663,7 @@ export class Snowcat {
           const x = Math.max(0, Math.min(snow.grid.sizeM, b.px + b.ox));
           const z = Math.max(0, Math.min(snow.grid.sizeM, b.pz + b.oz));
           snow.deposit(snow.grid.nearest(x, z), spill / 2, PUSHED_DENSITY);
+          snow.relaxAround(x, z, 3);
         }
         this.bladeLoadKg = spec.bladeCapacityKg;
       }
@@ -434,6 +677,8 @@ export class Snowcat {
         const z = Math.max(0, Math.min(snow.grid.sizeM, b.pz + b.oz));
         snow.deposit(snow.grid.nearest(x, z), share, PUSHED_DENSITY);
       }
+      b.toWorld(0, 0, spec.bladeZ + 0.4);
+      snow.relaxAround(b.px + b.ox, b.pz + b.oz, spec.bladeHalfWidthM + 3);
       this.bladeLoadKg = 0;
     }
     this.cutRateKgS += (cutKg / dt - this.cutRateKgS) * Math.min(1, dt * 6);
@@ -441,18 +686,36 @@ export class Snowcat {
     // Tiller: mill and re-lay the surface, leaving corduroy. Quality falls off when driven too fast.
     this.groomQuality = 0;
     if (this.tillerWorking && vf > 0.2 && this.groundedContacts > 0) {
-      const quality = clamp01(1 - (vf - 4.2) / 2.5);
+      const quality = clamp01(1 - (vf - spec.cleanSpeedMs) / 2.5);
       this.groomQuality = quality;
       const q = Math.max(1, Math.round(255 * quality));
-      const samples = Math.round((spec.tillerHalfWidthM * 2) / 0.2);
+      const half = spec.tillerHalfWidthM;
+      b.toWorld(0, -spec.trackBottomM, spec.tillerZ);
+      const cx = b.px + b.ox;
+      const cz = b.pz + b.oz;
+      // Lateral axis on the ground, to test which cells the drum actually covers.
+      b.toWorld(1, 0, 0);
+      const al = 1 / Math.max(1e-6, Math.hypot(b.ox, b.oz));
+      const ax = b.ox * al;
+      const az = b.oz * al;
+      const cell = snow.grid.cellM;
+      const samples = Math.round((half * 2) / 0.2);
       for (let k = 0; k <= samples; k++) {
-        const lx = (k / samples - 0.5) * 2 * spec.tillerHalfWidthM;
-        b.toWorld(lx, -spec.trackBottomM, spec.tillerZ);
-        const x = b.px + b.ox;
-        const z = b.pz + b.oz;
+        const lx = (k / samples - 0.5) * 2 * half;
+        const x = cx + ax * lx;
+        const z = cz + az * lx;
         if (!snow.grid.contains(x, z)) continue;
-        snow.till(snow.grid.nearest(x, z), q);
         snow.markSurface(x, z, q, 0, dirX, dirZ);
+        // A cell counts as tilled only if its centre lies under the drum, so groomed area
+        // matches the tiller's real width instead of rounding up to whole cells.
+        const i = snow.grid.nearest(x, z);
+        const ix = i % snow.grid.n;
+        const iz = (i - ix) / snow.grid.n;
+        if (Math.abs((ix * cell - cx) * ax + (iz * cell - cz) * az) <= half) {
+          // Thin cover limits the finish however well the machine is driven.
+          const cover = snow.coverQuality(i);
+          if (cover > 0) snow.till(i, Math.max(1, Math.round(q * cover)));
+        }
       }
     }
   }
