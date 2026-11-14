@@ -13,6 +13,7 @@ import { createSnowMaterial } from '../render/snowMaterial';
 import { SurfaceDetailView } from '../render/surfaceDetail';
 import { TerrainView } from '../render/terrainView';
 import { WinchView } from '../render/winchView';
+import { WorkLights } from '../render/workLights';
 import type { GameMode } from '../sim/career';
 import { FixedStepClock } from '../sim/clock';
 import type { Command } from '../sim/commands';
@@ -191,6 +192,8 @@ export async function startGame({
   scene.add(fleet.group);
   const winches = new WinchView(mountain, snow);
   scene.add(winches.group);
+  const workLights = new WorkLights();
+  scene.add(workLights.group);
   const gunsScene = new SnowGunsView(world.snowmaking, snow);
   scene.add(gunsScene.group);
   const liftsScene = new LiftsView(snow);
@@ -580,7 +583,8 @@ export async function startGame({
     terrain.update(cameraPosition);
     forest.update(cameraPosition);
     particles.update(dt, camera, snow, 1.2, -0.6);
-    environment.update(rig.focus);
+    environment.update(rig.focus, world.weather.hour);
+    workLights.update(world.cat, environment.darkness);
     renderer.render(scene, camera);
 
     saves.tick(now);

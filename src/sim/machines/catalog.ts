@@ -90,6 +90,15 @@ export const UPGRADES: Record<string, UpgradeDef> = {
       spec.cleanSpeedMs += 0.5 * level;
     },
   },
+  lights: {
+    id: 'lights',
+    name: 'Work lights',
+    summary: 'Brighter floodlights that reach further, for grooming at night',
+    costFractions: [0.02, 0.04],
+    apply(spec, level) {
+      spec.workLights = level;
+    },
+  },
   cruise: {
     id: 'cruise',
     name: 'Cruise control',
@@ -101,7 +110,16 @@ export const UPGRADES: Record<string, UpgradeDef> = {
   },
 };
 
-const GROOMER_UPGRADES = ['engine', 'tracks', 'tiller', 'blade', 'hydraulics', 'finisher', 'cruise'];
+const GROOMER_UPGRADES = [
+  'engine',
+  'tracks',
+  'tiller',
+  'blade',
+  'hydraulics',
+  'finisher',
+  'lights',
+  'cruise',
+];
 
 /** Geometry of the Kestrel 420 scaled to another machine size. */
 function scaledGeometry(scale: number) {

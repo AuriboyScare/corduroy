@@ -45,6 +45,8 @@ export interface SnowcatSpec {
   readonly winchCableM: number;
   /** Cruise control fitted. */
   readonly cruiseControl: boolean;
+  /** Work-light upgrade level: brighter, longer-reaching lights for night grooming. */
+  readonly workLights: number;
 }
 
 export const KESTREL_420: SnowcatSpec = {
@@ -74,6 +76,7 @@ export const KESTREL_420: SnowcatSpec = {
   winchPullN: 0,
   winchCableM: 0,
   cruiseControl: false,
+  workLights: 0,
 };
 
 export interface SnowcatInput {
