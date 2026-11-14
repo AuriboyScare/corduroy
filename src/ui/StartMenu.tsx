@@ -2,6 +2,8 @@ import { useState } from 'preact/hooks';
 import { formatMoney, modeMenu } from '../game/hudState';
 import type { SaveSummary } from '../platform/saveFile';
 import type { GameMode } from '../sim/career';
+import { Icon, LogoMark, MachineSilhouette } from './icons';
+import { MountainScene } from './MountainScene';
 
 const MODES: { mode: GameMode; name: string; text: string }[] = [
   {
@@ -26,6 +28,27 @@ function describeSave(save: SaveSummary): string {
   return parts.join(' · ');
 }
 
+/** A saved game, drawn as a lift ticket: punched stub with the mode, the details on the right. */
+function SaveTicket({ mode, save, onClick }: { mode: GameMode; save: SaveSummary; onClick: () => void }) {
+  return (
+    <button class={`ticket ${mode}`} data-testid={`continue-${mode}`} onClick={onClick}>
+      <span class="ticket-stub">
+        <span class="ticket-punch" />
+        <span class="ticket-kind">{mode}</span>
+      </span>
+      <span class="ticket-main">
+        <span class="ticket-head">
+          <span class="ticket-continue">Continue {mode}</span>
+          <Icon name="ticket" size={18} />
+        </span>
+        <span class="ticket-line">{describeSave(save)}</span>
+        <span class="ticket-line dim">Saved {new Date(save.savedAt).toLocaleString()}</span>
+        <span class="ticket-code" aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
 /** First screen: continue a saved game or start a new one. */
 export function StartMenu() {
   const menu = modeMenu.value;
@@ -38,23 +61,25 @@ export function StartMenu() {
 
   return (
     <div class="start" data-testid="start-menu">
+      <MountainScene />
+      <div class="start-scrim" />
       <div class="start-inner">
-        <div class="start-title">Corduroy</div>
-        <div class="start-sub">Mountain operations</div>
+        <div class="brand large">
+          <LogoMark size={64} />
+          <div>
+            <div class="brand-name">Corduroy</div>
+            <div class="brand-sub">Mountain operations</div>
+          </div>
+        </div>
+        <p class="start-pitch">
+          The lifts have closed and the mountain is yours. Groom the runs, keep the lifts turning and make
+          snow before first chair.
+        </p>
 
         {saved.length > 0 && (
-          <div class="start-options start-continue">
+          <div class="start-tickets">
             {saved.map(([mode, save]) => (
-              <button
-                key={mode}
-                class="start-option primary-option"
-                data-testid={`continue-${mode}`}
-                onClick={() => choose({ mode, resume: true })}
-              >
-                <span class="start-option-name">Continue {mode}</span>
-                <span class="start-option-text">{describeSave(save)}</span>
-                <span class="start-option-text">Saved {new Date(save.savedAt).toLocaleString()}</span>
-              </button>
+              <SaveTicket key={mode} mode={mode} save={save} onClick={() => choose({ mode, resume: true })} />
             ))}
           </div>
         )}
@@ -86,13 +111,23 @@ export function StartMenu() {
                 data-testid={`start-${mode}`}
                 onClick={() => (saves[mode] ? setConfirming(mode) : choose({ mode, resume: false }))}
               >
-                <span class="start-option-name">{name}</span>
-                <span class="start-option-text">{text}</span>
+                <span class="start-option-art">
+                  {mode === 'career' ? (
+                    <MachineSilhouette model="kestrel-260" width={96} />
+                  ) : (
+                    <Icon name="infinity" size={34} />
+                  )}
+                </span>
+                <span class="start-option-copy">
+                  <span class="start-option-name">{name}</span>
+                  <span class="start-option-text">{text}</span>
+                </span>
               </button>
             ),
           )}
         </div>
         <div class="start-note">
+          <Icon name="disk" size={14} />
           {savingAvailable
             ? 'Your game saves automatically every 2 minutes and when you quit. Press F5 to save at any time.'
             : 'This browser cannot store saves, so progress will be lost when you close it. Use the desktop app to keep your game.'}

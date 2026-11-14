@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Scene, Vector3, type WebGPURenderer } from 'three/webgpu';
 import type { SaveStore } from '../platform/saveStore';
-import { createEnvironment } from '../render/environment';
+import { createEnvironment, sunDirectionAt } from '../render/environment';
 import { FleetView } from '../render/fleetView';
 import { createForest } from '../render/forest';
 import { createGarage } from '../render/garage';
@@ -17,13 +17,13 @@ import { WorkLights } from '../render/workLights';
 import type { GameMode } from '../sim/career';
 import { FixedStepClock } from '../sim/clock';
 import type { Command } from '../sim/commands';
-import { machineModel, MACHINE_MODELS, UPGRADES, upgradePrice } from '../sim/machines/catalog';
+import { effectiveSpec, machineModel, MACHINE_MODELS, UPGRADES, upgradePrice } from '../sim/machines/catalog';
 import { COST_PER_M3, MADE_SNOW_DENSITY } from '../sim/snowmaking';
 import { Snowpack } from '../sim/snow/snowpack';
 import type { Conditions } from '../sim/weather';
 import { generateMountain, runById } from '../sim/terrain/mountain';
 import { PathFollower } from '../sim/vehicles/autopilot';
-import type { SnowcatInput } from '../sim/vehicles/snowcat';
+import type { SnowcatInput, SnowcatSpec } from '../sim/vehicles/snowcat';
 import { World } from '../sim/world';
 import { MachineAudio } from './sound/machineAudio';
 import { loadSlot, peekSlot, SaveManager, slotFor } from './saving';
@@ -51,6 +51,7 @@ import {
   notices,
   type DealerEntry,
   type FleetEntry,
+  type MachineSpecs,
   type Notice,
   type StartChoice,
 } from './hudState';
@@ -104,16 +105,14 @@ async function chooseStart(store: SaveStore | null): Promise<StartChoice> {
   });
 }
 
-function dealerStats(id: string): string {
-  const { spec } = machineModel(id);
-  const parts = [
-    `${Math.round(spec.enginePowerW / 1000)} kW`,
-    `tiller ${(spec.tillerHalfWidthM * 2).toFixed(1)} m`,
-    `blade ${(spec.bladeHalfWidthM * 2).toFixed(1)} m`,
-    `${Math.round(spec.maxForwardMs * 3.6)} km/h`,
-  ];
-  if (spec.winchPullN > 0) parts.push(`winch ${Math.round(spec.winchPullN / 1000)} kN`);
-  return parts.join(' · ');
+function machineSpecs(spec: SnowcatSpec): MachineSpecs {
+  return {
+    powerKw: spec.enginePowerW / 1000,
+    tillerM: spec.tillerHalfWidthM * 2,
+    bladeM: spec.bladeHalfWidthM * 2,
+    topKmh: spec.maxForwardMs * 3.6,
+    winchKn: spec.winchPullN / 1000,
+  };
 }
 
 export interface StartOptions {
@@ -246,6 +245,7 @@ export async function startGame({
     const lifts: LiftEntry[] = world.lifts.map((lift) => ({
       id: lift.line.id,
       name: lift.line.name,
+      type: lift.line.kind,
       kind: lift.type.label,
       built: world.career.lifts.has(lift.line.id),
       price: lift.type.price,
@@ -281,6 +281,7 @@ export async function startGame({
   };
 
   const conditions: Conditions = { tempC: 0, humidity: 0, wetBulbC: 0, windMs: 0, windToward: 0 };
+  const sunScratch = new Vector3();
   const refreshSnowmaking = (): void => {
     const making = world.snowmaking;
     const runs: SnowmakingEntry[] = mountain.runs.map((run, r) => {
@@ -334,6 +335,7 @@ export async function startGame({
         modelId: model.id,
         driving: index === world.activeIndex,
         atGarage: world.atGarage(machine),
+        specs: machineSpecs(effectiveSpec(model, machine.owned.levels)),
         upgrades: model.upgrades.map((id) => {
           const level = machine.owned.levels[id] ?? 0;
           const def = UPGRADES[id]!;
@@ -353,7 +355,7 @@ export async function startGame({
       name: model.name,
       price: model.price,
       description: model.description,
-      stats: dealerStats(model.id),
+      specs: machineSpecs(machineModel(model.id).spec),
       owned: world.machines.filter((m) => m.owned.model === model.id).length,
     }));
     if (garageSelected.value === null || !fleetEntries.some((f) => f.uid === garageSelected.value)) {
@@ -484,6 +486,8 @@ export async function startGame({
       camera: rig.mode,
       fps,
       machine: cat.spec.name,
+      modelId: world.activeMachine.owned.model,
+      night: sunDirectionAt(world.weather.hour, sunScratch).y < 0,
     };
     if (garageOpen.value) refreshGarage();
     if (liftsOpen.value) refreshLifts();

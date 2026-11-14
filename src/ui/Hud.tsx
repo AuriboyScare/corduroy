@@ -1,30 +1,29 @@
 import { CAMERA_LABELS } from '../game/cameraRig';
-import { formatMoney, helpVisible, hud, loadingMessage, notices, snowLabel } from '../game/hudState';
+import {
+  formatMoney,
+  helpVisible,
+  hud,
+  loadingMessage,
+  notices,
+  snowLabel,
+  type Notice,
+} from '../game/hudState';
+import { saveStatus } from '../game/saving';
 import type { Difficulty } from '../sim/resort/layout';
 import { DIFFICULTY_LABEL } from '../sim/resort/layout';
-import { saveStatus } from '../game/saving';
 import { GaragePanel } from './Garage';
+import { Icon, LogoMark, type IconName } from './icons';
+import { Inclinometer, Lamp, LoadLamps, SnowProfile, Tachometer } from './instruments';
 import { LiftsPanel } from './Lifts';
+import { MountainScene } from './MountainScene';
 import { SnowmakingPanel } from './Snowmaking';
 import { StartMenu } from './StartMenu';
 
-function Bar({ value, warnAt = 0.85 }: { value: number; warnAt?: number }) {
-  const clamped = Math.max(0, Math.min(1, value));
-  return (
-    <div class="bar">
-      <div
-        class={`bar-fill${value >= 1 ? ' bad' : value >= warnAt ? ' warn' : ''}`}
-        style={{ width: `${clamped * 100}%` }}
-      />
-    </div>
-  );
-}
-
-function Row({ label, value, unit }: { label: string; value: string; unit?: string }) {
+function Row({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
   return (
     <div class="row">
       <span class="label">{label}</span>
-      <span class="value">
+      <span class={`value${tone ? ` ${tone}` : ''}`}>
         {value}
         {unit && <span class="unit"> {unit}</span>}
       </span>
@@ -33,7 +32,7 @@ function Row({ label, value, unit }: { label: string; value: string; unit?: stri
 }
 
 /** Trail sign: green circle, blue square, black diamond; the beginner area also uses green. */
-function TrailSign({ difficulty }: { difficulty: Difficulty }) {
+export function TrailSign({ difficulty }: { difficulty: Difficulty }) {
   return (
     <span
       class={`sign sign-${difficulty}`}
@@ -43,23 +42,43 @@ function TrailSign({ difficulty }: { difficulty: Difficulty }) {
   );
 }
 
-const KEYS: [string, string][] = [
-  ['W / S', 'Drive forward / reverse'],
-  ['A / D', 'Steer (pivots when stopped)'],
-  ['R / F', 'Blade up / down'],
-  ['T', 'Tiller down and running / up'],
-  ['V', 'Cruise control (if fitted)'],
-  ['Y', 'Winch hook / unhook (600W)'],
-  ['[ / ]', 'Winch tension down / up'],
-  ['G', 'Garage: machines and upgrades'],
-  ['L', 'Lifts: build and operate'],
-  ['N', 'Snowmaking'],
-  ['C', 'Camera: chase, cab, free fly'],
-  ['Drag', 'Look around'],
-  ['Scroll', 'Zoom (chase camera)'],
-  ['F5', 'Save now'],
-  ['M', 'Sound on / off'],
-  ['H', 'Show or hide this list'],
+const KEY_GROUPS: { title: string; keys: [string[], string][] }[] = [
+  {
+    title: 'Drive',
+    keys: [
+      [['W', 'S'], 'Forward / reverse'],
+      [['A', 'D'], 'Steer (pivots when stopped)'],
+      [['V'], 'Cruise control (if fitted)'],
+    ],
+  },
+  {
+    title: 'Implements',
+    keys: [
+      [['R', 'F'], 'Blade up / down'],
+      [['T'], 'Tiller down and running / up'],
+      [['Y'], 'Winch hook / unhook (600W)'],
+      [['[', ']'], 'Winch tension down / up'],
+    ],
+  },
+  {
+    title: 'Resort',
+    keys: [
+      [['G'], 'Garage: machines and upgrades'],
+      [['L'], 'Lifts: build and operate'],
+      [['N'], 'Snowmaking'],
+    ],
+  },
+  {
+    title: 'View and game',
+    keys: [
+      [['C'], 'Camera: chase, cab, free fly'],
+      [['Drag'], 'Look around'],
+      [['Scroll'], 'Zoom (chase camera)'],
+      [['F5'], 'Save now'],
+      [['M'], 'Sound on / off'],
+      [['H'], 'Show or hide this list'],
+    ],
+  },
 ];
 
 function SaveLine() {
@@ -75,12 +94,22 @@ function SaveLine() {
   }
   const bad = status.state === 'error' || status.state === 'unavailable';
   return (
-    <div class="row small">
-      <span class={`label save-status${bad ? ' bad' : ''}`} data-testid="save-status">
+    <div class={`foot-line${bad ? ' bad' : ''}`}>
+      <Icon name="disk" size={14} />
+      <span class="save-status" data-testid="save-status">
         {text}
       </span>
     </div>
   );
+}
+
+function noticeIcon(n: Notice): IconName {
+  if (n.bonus) return 'bonus';
+  if (n.text.startsWith('Grooming')) return 'corduroy';
+  if (n.text === 'Lift tickets') return 'ticket';
+  if (n.text.startsWith('Winch')) return 'winch';
+  if (n.text === 'Game saved') return 'disk';
+  return 'snowflake';
 }
 
 function Notices() {
@@ -90,7 +119,10 @@ function Notices() {
     <div class="notices" aria-live="polite">
       {list.map((n) => (
         <div class={`notice${n.bonus ? ' bonus' : ''}`} key={n.id}>
-          <span>{n.text}</span>
+          <span class="notice-icon">
+            <Icon name={noticeIcon(n)} size={16} />
+          </span>
+          <span class="notice-text">{n.text}</span>
           {n.amount !== null && <span class="notice-amount">+{formatMoney(n.amount)}</span>}
         </div>
       ))}
@@ -98,126 +130,225 @@ function Notices() {
   );
 }
 
+function tillerState(d: { tillerDown: boolean; tillerWorking: boolean; groomQuality: number }): {
+  text: string;
+  lamp: 'on' | 'off' | 'warn';
+} {
+  if (!d.tillerDown) return { text: 'Raised', lamp: 'off' };
+  if (!d.tillerWorking) return { text: 'Lowering', lamp: 'warn' };
+  if (d.groomQuality > 0.7) return { text: 'Grooming', lamp: 'on' };
+  if (d.groomQuality > 0) return { text: 'Too fast', lamp: 'warn' };
+  return { text: 'Down, idle', lamp: 'off' };
+}
+
+/** Logo, progress stripe and the current step while the world is being built. */
+function Loading({ step }: { step: string }) {
+  return (
+    <div class="loading" data-testid="loading">
+      <MountainScene />
+      <div class="loading-card">
+        <div class="brand">
+          <LogoMark size={52} />
+          <div>
+            <div class="brand-name">Corduroy</div>
+            <div class="brand-sub">Mountain operations</div>
+          </div>
+        </div>
+        <div class="loading-bar" aria-hidden="true">
+          <span />
+        </div>
+        <div class="loading-step">{step}…</div>
+      </div>
+    </div>
+  );
+}
+
 export function Hud() {
   const loading = loadingMessage.value;
-  if (loading) {
-    return (
-      <div class="loading" data-testid="loading">
-        <div class="loading-title">Corduroy</div>
-        <div class="loading-step">{loading}…</div>
-      </div>
-    );
-  }
+  if (loading) return <Loading step={loading} />;
   const d = hud.value;
   if (!d) return <StartMenu />;
+  const tiller = tillerState(d);
+  const bladeFill = Math.min(1, d.bladeLoadKg / d.bladeCapacityKg);
+  const overall = d.runs.length > 0 ? d.runs.reduce((n, r) => n + r.groomed, 0) / d.runs.length : 0;
   return (
     <>
       <div class="panel cluster" data-testid="cluster">
         <div class="cluster-head">
-          <span class="machine">{d.machine}</span>
-          <span class="speed">
-            {Math.abs(d.speedKmh).toFixed(1)}
-            <span class="unit"> km/h{d.speedKmh < -0.5 ? ' rev' : ''}</span>
+          <span class="plate">
+            <Icon name="tracks" size={15} />
+            <span class="machine">{d.machine}</span>
           </span>
+          {d.cruiseKmh !== null && (
+            <span class="chip ok">
+              <Icon name="cruise" size={13} /> Cruise {d.cruiseKmh.toFixed(1)}
+            </span>
+          )}
         </div>
-        {d.cruiseKmh !== null && (
-          <div class="row">
-            <span class="label">Cruise</span>
-            <span class="value ok">{d.cruiseKmh.toFixed(1)} km/h</span>
+        <div class="cluster-main">
+          <Tachometer rpm={d.engineRpm} />
+          <div class="speedo">
+            <div class="speed">
+              <span class="speed-value">{Math.abs(d.speedKmh).toFixed(1)}</span>
+              <span class="speed-unit">
+                km/h
+                {d.speedKmh < -0.5 && <span class="chip warn">rev</span>}
+              </span>
+            </div>
+            <div class="load">
+              <span class="cap-label">Load</span>
+              <LoadLamps load={d.engineLoad} />
+              <span class={`load-value${d.engineLoad >= 1 ? ' bad' : d.engineLoad >= 0.85 ? ' warn' : ''}`}>
+                {Math.round(Math.min(1.5, d.engineLoad) * 100)}%
+              </span>
+            </div>
           </div>
-        )}
-        <div class="row">
-          <span class="label">Engine</span>
-          <span class="value">
-            {Math.round(d.engineRpm / 10) * 10}
-            <span class="unit"> rpm</span> · {Math.round(Math.min(1.5, d.engineLoad) * 100)}
-            <span class="unit">% load</span>
-          </span>
         </div>
-        <Bar value={d.engineLoad} />
-        <div class="row">
-          <span class="label">Blade</span>
-          <span class="value">
-            {d.bladeHeightCm >= 0 ? '+' : '−'}
-            {Math.abs(d.bladeHeightCm).toFixed(0)}
-            <span class="unit"> cm</span> · {Math.round(d.bladeLoadKg)}
-            <span class="unit"> kg</span>
-          </span>
-        </div>
-        <Bar value={d.bladeLoadKg / d.bladeCapacityKg} warnAt={0.8} />
-        <div class="row">
-          <span class="label">Tiller</span>
-          <span
-            class={`value ${d.tillerWorking ? (d.groomQuality > 0.7 ? 'ok' : d.groomQuality > 0 ? 'warn' : '') : ''}`}
-          >
-            {!d.tillerDown
-              ? 'Raised'
-              : !d.tillerWorking
-                ? 'Lowering'
-                : d.groomQuality > 0.7
-                  ? 'Grooming'
-                  : d.groomQuality > 0
-                    ? 'Too fast'
-                    : 'Down, idle'}
-          </span>
-        </div>
-        {d.winch && (
-          <div class="row">
-            <span class="label">Winch</span>
-            <span class={`value${d.winch.anchor && d.winch.remainingM < 15 ? ' warn' : ''}`}>
-              {d.winch.anchor
-                ? `${Math.round(d.winch.cableOutM)} m · ${Math.round(d.winch.forceKn)} kN`
-                : 'Not hooked (Y)'}
+        <div class="implements">
+          <div class="impl">
+            <Icon name="blade" size={16} />
+            <span class="cap-label">Blade</span>
+            <span class="impl-value">
+              {d.bladeHeightCm >= 0 ? '+' : '−'}
+              {Math.abs(d.bladeHeightCm).toFixed(0)}
+              <span class="unit"> cm</span>
+            </span>
+            <span class="impl-meter" title={`${Math.round(d.bladeLoadKg)} kg on the blade`}>
+              <span class="mini-bar">
+                <span
+                  class={bladeFill >= 1 ? 'bad' : bladeFill >= 0.8 ? 'warn' : ''}
+                  style={{ width: `${bladeFill * 100}%` }}
+                />
+              </span>
+              <span class="impl-kg">
+                {Math.round(d.bladeLoadKg)}
+                <span class="unit"> kg</span>
+              </span>
             </span>
           </div>
-        )}
-        {d.winch?.anchor && (
-          <div class="row">
-            <span class="label">{d.winch.remainingM < 15 ? 'Cable end' : 'Tension set'}</span>
-            <span class="value">{Math.round(d.winch.setting * 100)}%</span>
+          <div class="impl">
+            <Icon name="tiller" size={16} />
+            <span class="cap-label">Tiller</span>
+            <span class={`impl-state ${tiller.lamp}`}>
+              <Lamp state={tiller.lamp} />
+              {tiller.text}
+            </span>
           </div>
-        )}
-        <div class="divider" />
-        <Row label="Pitch / roll" value={`${d.pitchDeg.toFixed(0)}° / ${d.rollDeg.toFixed(0)}°`} />
-        <Row label="Grip" value={d.grip > 0 ? d.grip.toFixed(2) : 'airborne'} />
-        <Row label="Track sink" value={d.sinkCm.toFixed(0)} unit="cm" />
+          {d.winch && (
+            <div class="impl">
+              <Icon name="winch" size={16} />
+              <span class="cap-label">Winch</span>
+              <span class={`impl-state${d.winch.anchor && d.winch.remainingM < 15 ? ' warn' : ''}`}>
+                {d.winch.anchor ? (
+                  <>
+                    {Math.round(d.winch.cableOutM)} m · {Math.round(d.winch.forceKn)} kN ·{' '}
+                    {d.winch.remainingM < 15 ? 'cable end' : 'tension'} {Math.round(d.winch.setting * 100)}%
+                  </>
+                ) : (
+                  'Not hooked (Y)'
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+        <div class="cluster-foot">
+          <Inclinometer pitchDeg={d.pitchDeg} rollDeg={d.rollDeg} />
+          <div class="foot-stats">
+            <div class="foot-stat">
+              <Icon name="grip" size={14} />
+              <span class="cap-label">Grip</span>
+              <span class="value">{d.grip > 0 ? d.grip.toFixed(2) : 'airborne'}</span>
+            </div>
+            <div class="foot-stat">
+              <Icon name="sink" size={14} />
+              <span class="cap-label">Sink</span>
+              <span class="value">
+                {d.sinkCm.toFixed(0)}
+                <span class="unit"> cm</span>
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="panel snow" data-testid="snow-panel">
-        <div class="snow-type">{snowLabel(d.snowTopCm, d.snowDensity, d.groomedHere)}</div>
-        <Row label="Top layer" value={d.snowTopCm.toFixed(0)} unit="cm" />
-        <Row label="Density" value={d.snowDensity.toFixed(0)} unit="kg/m³" />
-        <Row label="Base" value={d.snowBaseCm.toFixed(0)} unit="cm" />
-        <div class="row">
-          <span class="label">Cover</span>
-          <span class={`value${d.thinCover ? ' warn' : ''}`}>
-            {d.coverCm.toFixed(0)}
-            <span class="unit"> cm{d.thinCover ? ' · thin' : ''}</span>
-          </span>
+        <div class="panel-title">
+          <Icon name={d.groomedHere ? 'corduroy' : 'snowflake'} size={16} />
+          <span class="snow-type">{snowLabel(d.snowTopCm, d.snowDensity, d.groomedHere)}</span>
         </div>
-        <div class="divider" />
-        <Row label="Air" value={d.tempC.toFixed(1)} unit="°C" />
-        <Row label="Wet-bulb" value={d.wetBulbC.toFixed(1)} unit="°C" />
-        <Row label="Wind" value={d.windMs.toFixed(0)} unit="m/s" />
-        <Row label="Altitude" value={d.altitudeM.toFixed(0)} unit="m" />
+        <div class="snow-body">
+          <SnowProfile
+            baseCm={d.snowBaseCm}
+            topCm={d.snowTopCm}
+            density={d.snowDensity}
+            groomed={d.groomedHere}
+          />
+          <div class="snow-rows">
+            <Row label="Top layer" value={d.snowTopCm.toFixed(0)} unit="cm" />
+            <Row label="Density" value={d.snowDensity.toFixed(0)} unit="kg/m³" />
+            <Row label="Base" value={d.snowBaseCm.toFixed(0)} unit="cm" />
+            <Row
+              label="Cover"
+              value={d.coverCm.toFixed(0)}
+              unit={d.thinCover ? 'cm · thin' : 'cm'}
+              {...(d.thinCover ? { tone: 'warn' } : {})}
+            />
+          </div>
+        </div>
+        <div class="wx">
+          <div class="wx-cell" title="Air temperature">
+            <Icon name="thermometer" size={15} />
+            <span class="value">
+              {d.tempC.toFixed(1)}
+              <span class="unit">°C</span>
+            </span>
+          </div>
+          <div class="wx-cell" title="Wet-bulb temperature: below −2 °C the snow guns work">
+            <Icon name="droplet" size={15} />
+            <span class="value">
+              {d.wetBulbC.toFixed(1)}
+              <span class="unit">°C wb</span>
+            </span>
+          </div>
+          <div class="wx-cell" title="Wind">
+            <Icon name="wind" size={15} />
+            <span class="value">
+              {d.windMs.toFixed(0)}
+              <span class="unit">m/s</span>
+            </span>
+          </div>
+          <div class="wx-cell" title="Altitude">
+            <Icon name="peak" size={15} />
+            <span class="value">
+              {d.altitudeM.toFixed(0)}
+              <span class="unit">m</span>
+            </span>
+          </div>
+        </div>
       </div>
 
-      <div class="panel job" data-testid="job-panel">
-        <div class="job-head">
+      <div class="panel board" data-testid="job-panel">
+        <div class="board-head">
           <span class="money" data-testid="money">
             {formatMoney(d.money)}
           </span>
-          <span class="label" data-testid="clock">
-            {d.clock}
+          <span class={`clock${d.night ? ' night' : ''}`}>
+            <Icon name={d.night ? 'moon' : 'sun'} size={15} />
+            <span data-testid="clock">{d.clock}</span>
           </span>
+        </div>
+        <div class="board-title">
+          <span>Trail report</span>
+          <span class="board-overall">{Math.round(overall * 100)}% groomed</span>
         </div>
         <div class="runs">
           {d.runs.map((run) => (
-            <div class="run" key={run.name}>
+            <div class={`run${run.groomed >= 0.9 ? ' done' : ''}`} key={run.name}>
               <div class="run-head">
                 <TrailSign difficulty={run.difficulty} />
                 <span class="run-name">{run.name}</span>
-                <span class="value">{Math.round(run.groomed * 100)}%</span>
+                {run.groomed >= 0.9 && <Icon name="corduroy" size={13} class="run-groomed" />}
+                <span class="run-pct">{Math.round(run.groomed * 100)}%</span>
               </div>
               <div class="sections" aria-hidden="true">
                 {run.sections.map((s, k) => (
@@ -227,29 +358,44 @@ export function Hud() {
             </div>
           ))}
         </div>
-        <div class="row small">
-          <span class="label">
-            {d.atGarage ? 'At the garage · G to open' : `Garage ${(d.garageDistanceM / 1000).toFixed(2)} km`}
-          </span>
-        </div>
-        <SaveLine />
-        <div class="row small">
-          <span class="label">Camera: {CAMERA_LABELS[d.camera]}</span>
-          <span class="label">
-            {d.muted ? 'Sound off · ' : ''}
-            {d.fps.toFixed(0)} fps
-          </span>
+        <div class="board-foot">
+          <div class={`foot-line${d.atGarage ? ' ok' : ''}`}>
+            <Icon name="garage" size={14} />
+            <span>
+              {d.atGarage
+                ? 'At the garage · G to open'
+                : `Garage ${(d.garageDistanceM / 1000).toFixed(2)} km`}
+            </span>
+          </div>
+          <SaveLine />
+          <div class="foot-line">
+            <Icon name="camera" size={14} />
+            <span>Camera: {CAMERA_LABELS[d.camera]}</span>
+            <span class="foot-right">
+              {d.muted && <Icon name="mute" size={14} />}
+              {d.fps.toFixed(0)} fps
+            </span>
+          </div>
         </div>
       </div>
 
       <Notices />
 
-      {helpVisible.value && (
+      {helpVisible.value ? (
         <div class="panel help" data-testid="help">
-          {KEYS.map(([key, action]) => (
-            <div class="help-row" key={key}>
-              <kbd>{key}</kbd>
-              <span>{action}</span>
+          {KEY_GROUPS.map((group) => (
+            <div class="help-group" key={group.title}>
+              <div class="help-title">{group.title}</div>
+              {group.keys.map(([keys, action]) => (
+                <div class="help-row" key={action}>
+                  <span class="keys">
+                    {keys.map((k) => (
+                      <kbd key={k}>{k}</kbd>
+                    ))}
+                  </span>
+                  <span>{action}</span>
+                </div>
+              ))}
             </div>
           ))}
           {d.camera === 'free' && (
@@ -257,6 +403,10 @@ export function Hud() {
               Free fly: W A S D move, Q / E down / up, Shift faster. The machine is parked.
             </div>
           )}
+        </div>
+      ) : (
+        <div class="help-hint">
+          <kbd>H</kbd> Controls
         </div>
       )}
 
