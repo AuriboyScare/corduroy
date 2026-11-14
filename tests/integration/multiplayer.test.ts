@@ -55,7 +55,12 @@ class Game {
   }
 
   join(name = 'Ben', clientMath = math): Promise<World> {
-    this.client = new ClientSession({ transport: this.hub.connect('client-peer'), name, math: clientMath, decode });
+    this.client = new ClientSession({
+      transport: this.hub.connect('client-peer'),
+      name,
+      math: clientMath,
+      decode,
+    });
     return this.client.join(10_000);
   }
 
@@ -77,7 +82,13 @@ class Game {
 
 describe('multiplayer', () => {
   it('quantises inputs so every copy steps with the same values', () => {
-    const input: SnowcatInput = { throttle: 0.3333, steer: -1, bladeLift: 0.5, tillerDown: true, winchAdjust: 0.25 };
+    const input: SnowcatInput = {
+      throttle: 0.3333,
+      steer: -1,
+      bladeLift: 0.5,
+      tillerDown: true,
+      winchAdjust: 0.25,
+    };
     const once = unpackInput(packInput(input));
     expect(unpackInput(packInput(once))).toEqual(once);
     expect(once.steer).toBe(-1);

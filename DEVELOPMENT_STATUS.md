@@ -1,10 +1,10 @@
 # Development status
 
-Last updated: 2026-11-14 (branch `multiplayer`)
+Last updated: 2026-11-14 (branch `lift-detail`)
 
 ## Completed systems
 
-Each is covered by automated tests (104 unit and integration, 14 browser and Electron) and was checked in screenshots of the running game.
+Each is covered by automated tests (107 unit and integration, 15 browser and Electron) and was checked in screenshots of the running game.
 
 - **Resort layout**: four runs (Nursery, Long Meadow, Kestrel, Falcon Face) graded to their difficulty and split into ~150 m sections; base area; marker poles along every run; trail signs; boulders.
 - **Snowpack**: two layers on a 1 m grid; mass-conserving cutting, filling, compaction, tilling, and slumping to the angle of repose; thin natural base low down; tiller finish limited by consolidated cover depth; sparse 0.25 m surface-detail tiles.
@@ -12,6 +12,7 @@ Each is covered by automated tests (104 unit and integration, 14 browser and Ele
 - **Machines**: Kestrel 260, 420 and 600W, each with its own size, power and implements; eight upgrade types with levels that change the simulated machine (engine, tracks, tiller width, blade, hydraulics, finisher, work lights, cruise control). Power-limited hydrostatic drive; spawns square to slopes.
 - **Winch** (600W): constant tension, auto pay-out, engine load when reeling in, cable-end interlock; three anchors.
 - **Career**: money from grooming by quality and difficulty, section and run bonuses, lift tickets; garage for buying machines and upgrades and swapping machines. Sandbox mode.
+- **Lift models**: galvanised tube towers on concrete footings with crossarms and braces, rocking sheave trains with individual lined wheels, catwalks with railings, caged ladders and numbered plates; lattice tram towers with rope saddles. Chair terminals with a bullwheel under a painted bonnet on a cantilever, drive (gearbox and motor) at the bottom and a counterweighted tension carriage at the top, electrical cabinet, loading mat, queue maze, unload ramp, signs, operator hut and light poles. The gondola has a glazed hall with a barrel roof over its U-shaped station rail and tyre conveyor. The tram station is a concrete hall with a platform and stairs, rope anchorages, a waiting room and an entrance. Chairs have cushions, armrests, a curved hanger and a safety bar with footrest that riders lower on the way up and raise before the top. Gondola cabins have a painted shell, glazing, doors, benches and a detachable grip. The tram cabin has livery, glazing, hanger arms and a carriage on the track ropes. Each lift's signs and the fictional Aster Ropeways maker mark come from its own sign sheet. Windows, lamps and cabins light up at night. Carriers beyond 90 m are drawn as plain stand-ins, and small fittings stay out of the shadow map.
 - **Lifts**: rope tow, fixed-grip quad, detachable gondola, aerial tram. Automatic tower placement with clearance under both ropes; sagging rope; carriers looping round bullwheels; gondola cabins slowing in stations; tram shuttle with dwell; drive with start, stop, emergency stop and speed; swing on hard stops; riders and ticket income that follow grooming and cover.
 - **Weather and snowmaking**: game clock (30x), daily temperature swing, fronts, humidity, wind, lapse rate; wet-bulb from the psychrometer equation at altitude. Snow guns per run (off/auto/on), output by wet-bulb, dense snow laid downwind into the run, water and power cost.
 - **Day and night**: sun and moon by the clock; the driven machine's work lights at night.
@@ -33,7 +34,7 @@ Each is covered by automated tests (104 unit and integration, 14 browser and Ele
 ## Known bugs and limitations
 
 - **Draw calls over budget.** The game holds 60 fps in all four bench scenes (2026-11-14), but draws 367-585 calls against a budget of 400. Likely fixes: shadow-pass draw calls, merging small meshes. The earlier 34-55 fps readings were caused by other GPU work on the Mac.
-- Riders on lifts are simple shapes that look crude up close; the gondola station is a plain box.
+- Riders on lifts are simple shapes that look crude up close (replaced with the skier models next).
 - Snow guns are silent; there is no stars or moon disc in the night sky.
 - The parked machine creeps slowly on steep slopes; there is no parking brake.
 - Track ruts and corduroy are shading only at close range.
@@ -43,15 +44,16 @@ Each is covered by automated tests (104 unit and integration, 14 browser and Ele
 
 ## Performance measurements
 
-| Date       | Scene                  | Result                | Power                | Notes                                  |
-| ---------- | ---------------------- | --------------------- | -------------------- | -------------------------------------- |
-| 2026-11-12 | Chase, grooming uphill | 60 fps, worst 17.7 ms | Battery              | Before lifts and props; display-capped |
-| 2026-11-13 | Chase, grooming uphill | 34 fps, p99 50 ms     | Mains, battery at 5% | Other GPU work running; not reliable   |
-| 2026-11-13 | Low over forest        | 52 fps, p99 33 ms     | Mains, battery at 5% | Other GPU work running; not reliable   |
-| 2026-11-14 | Chase, grooming uphill | 60 fps, worst 16.7 ms | Mains                | 1728x1000, 496 calls, 3.2 M triangles  |
-| 2026-11-14 | Cab, grooming uphill   | 60 fps, worst 16.7 ms | Mains                | 585 calls, 3.7 M triangles             |
-| 2026-11-14 | Aerial over forest     | 60 fps, worst 50 ms   | Mains                | 566 calls; one frame over 20 ms        |
-| 2026-11-14 | Low over forest        | 60 fps, worst 16.7 ms | Mains                | 367 calls, 4.5 M triangles             |
+| Date       | Scene                  | Result                | Power                | Notes                                   |
+| ---------- | ---------------------- | --------------------- | -------------------- | --------------------------------------- |
+| 2026-11-12 | Chase, grooming uphill | 60 fps, worst 17.7 ms | Battery              | Before lifts and props; display-capped  |
+| 2026-11-13 | Chase, grooming uphill | 34 fps, p99 50 ms     | Mains, battery at 5% | Other GPU work running; not reliable    |
+| 2026-11-13 | Low over forest        | 52 fps, p99 33 ms     | Mains, battery at 5% | Other GPU work running; not reliable    |
+| 2026-11-14 | Chase, grooming uphill | 60 fps, worst 16.7 ms | Mains                | 1728x1000, 496 calls, 3.2 M triangles   |
+| 2026-11-14 | Cab, grooming uphill   | 60 fps, worst 16.7 ms | Mains                | 585 calls, 3.7 M triangles              |
+| 2026-11-14 | Aerial over forest     | 60 fps, worst 50 ms   | Mains                | 566 calls; one frame over 20 ms         |
+| 2026-11-14 | Low over forest        | 60 fps, worst 16.7 ms | Mains                | 367 calls, 4.5 M triangles              |
+| 2026-11-14 | All four, new lifts    | 60 / 60 / 59.6 / 60   | Mains                | chase 534 calls 3.8 M, aerial 570 3.5 M |
 
 ## Next priorities
 
