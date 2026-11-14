@@ -7,6 +7,7 @@ import { createGarage } from '../render/garage';
 import { LiftsView } from '../render/liftView';
 import { SnowGunsView } from '../render/snowGunsView';
 import { MachineEffects } from '../render/machineEffects';
+import { resortLights } from '../render/lifts/materials';
 import { machineDaylight } from '../render/machines/materials';
 import { Particles } from '../render/particles';
 import { createResortProps } from '../render/resortProps';
@@ -101,6 +102,8 @@ export interface GameDebug {
   fastForward(steps: number, input: SnowcatInput): void;
   /** Machine models built so far (each visible upgrade rebuilds one). */
   modelBuilds(): number;
+  /** Carriers of a lift drawn in detail and as plain stand-ins last frame. */
+  liftDetail(id: string): { near: number; far: number } | null;
 }
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -506,6 +509,7 @@ export async function startGame({
       for (let i = 0; i < steps; i++) world.step(stepInput);
     },
     modelBuilds: () => fleet.builds,
+    liftDetail: (id) => liftsScene.drawn(id),
   };
 
   let lastInput: SnowcatInput = idle;
@@ -825,6 +829,7 @@ export async function startGame({
     });
     const lampLevel = Math.max(0, Math.min(1, (environment.darkness - 0.25) / 0.4));
     machineDaylight.value = 1 - environment.darkness;
+    resortLights.value = lampLevel;
     fleet.sync(world.machines, {
       active: world.activeIndex,
       isDriven,
@@ -837,7 +842,7 @@ export async function startGame({
     const drivenModel = fleet.model(world.activeMachine.owned.uid);
     if (drivenModel) rig.cabEye.copy(drivenModel.cabEye);
     effects.update(dt, world.cat, drivenModel?.exhaust);
-    liftsScene.update(world.lifts, world.career.lifts, (lift) => world.liftUse(lift));
+    liftsScene.update(world.lifts, world.career.lifts, (lift) => world.liftUse(lift), camera.position);
     gunsScene.update(dt, particles, world.weather, camera.position);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
     rig.update(dt, input, world.cat);

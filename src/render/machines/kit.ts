@@ -1,5 +1,5 @@
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Group } from 'three/webgpu';
 import {
   BoxGeometry,
@@ -114,10 +114,18 @@ export function latheX(outline: readonly (readonly [number, number])[], segments
 }
 
 /** A tube along points (hoses, handrails, cables). */
-export function tube(points: readonly Vector3[], radius: number, closed = false, radial = 8): BufferGeometry {
+export function tube(points: readonly Vector3[], radius: number, closed = false, radial = 7): BufferGeometry {
   const curve = new CatmullRomCurve3(points as Vector3[], closed, 'centripetal');
-  const segments = Math.max(4, Math.round(curve.getLength() / 0.06));
+  const segments = Math.max(4, Math.round(curve.getLength() / 0.12));
   return new TubeGeometry(curve, segments, radius, radial, closed);
+}
+
+/**
+ * Merges parts and re-indexes the result, so vertices shared by neighbouring triangles (round
+ * surfaces especially) are shaded once instead of once per triangle.
+ */
+function merged(list: BufferGeometry[]): BufferGeometry {
+  return mergeVertices(mergeGeometries(list), 1e-5);
 }
 
 /**
@@ -131,6 +139,15 @@ export class Kit {
   private readonly quaternion = new Quaternion();
   private readonly offset = new Vector3();
   private readonly scale = new Vector3(1, 1, 1);
+  /** Segments in each rounded edge of `rbox`; 1 gives a cheap chamfer for parts seen from afar. */
+  roundSegments = 2;
+  /** Applied to every part after its own placement: lets an assembly be built in local coordinates. */
+  private frame: Matrix4 | null = null;
+
+  /** Places everything added from now on in this frame (null: world coordinates). */
+  setFrame(frame: Matrix4 | null): void {
+    this.frame = frame;
+  }
 
   add(material: Material, geometry: BufferGeometry, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0): void {
     this.matrix.compose(
@@ -144,6 +161,7 @@ export class Kit {
     if (!g.getAttribute('uv'))
       g.setAttribute('uv', new BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2));
     g = g.applyMatrix4(this.matrix);
+    if (this.frame) g.applyMatrix4(this.frame);
     const list = this.parts.get(material);
     if (list) list.push(g);
     else this.parts.set(material, [g]);
@@ -179,7 +197,7 @@ export class Kit {
     rz = 0,
   ): void {
     const r = Math.min(radius, w / 2 - 1e-3, h / 2 - 1e-3, l / 2 - 1e-3);
-    this.add(m, new RoundedBoxGeometry(w, h, l, 2, Math.max(1e-3, r)), x, y, z, rx, ry, rz);
+    this.add(m, new RoundedBoxGeometry(w, h, l, this.roundSegments, Math.max(1e-3, r)), x, y, z, rx, ry, rz);
   }
 
   /** Cylinder with its axis along x. */
@@ -237,15 +255,29 @@ export class Kit {
     this.add(m, tube(points, radius, closed));
   }
 
+  /** The parts merged into one geometry per material, without making meshes (for instancing). */
+  geometries(): [BufferGeometry, Material][] {
+    const out: [BufferGeometry, Material][] = [];
+    for (const [material, list] of this.parts) out.push([merged(list), material]);
+    this.parts.clear();
+    return out;
+  }
+
   get empty(): boolean {
     return this.parts.size === 0;
   }
 
-  build(parent: Group, castShadow = true, receiveShadow = true): Map<Material, Mesh> {
+  /** Merges into one mesh per material; parts in `noShadow` materials stay out of the shadow map. */
+  build(
+    parent: Group,
+    castShadow = true,
+    receiveShadow = true,
+    noShadow: ReadonlySet<Material> = new Set(),
+  ): Map<Material, Mesh> {
     const meshes = new Map<Material, Mesh>();
     for (const [material, list] of this.parts) {
-      const mesh = new Mesh(mergeGeometries(list), material);
-      mesh.castShadow = castShadow;
+      const mesh = new Mesh(merged(list), material);
+      mesh.castShadow = castShadow && !noShadow.has(material);
       mesh.receiveShadow = receiveShadow;
       parent.add(mesh);
       meshes.set(material, mesh);

@@ -324,6 +324,33 @@ test.describe('on a GPU', () => {
     await expect(page.getByTestId('join-error')).toContainText('six letters and numbers');
   });
 
+  test('browser: lifts draw every carrier once, in detail near the camera and plain far away', async ({
+    page,
+  }) => {
+    await page.goto('/?debug=1&mode=sandbox');
+    await gameReady(page);
+    const counts = () => page.evaluate(() => window.__corduroy!.game!.liftDetail('meadow-quad')!);
+    const total = await page.evaluate(
+      () => window.__corduroy!.game!.world.lifts.find((l) => l.line.id === 'meadow-quad')!.carrierCount,
+    );
+    await page.evaluate(() => {
+      const game = window.__corduroy!.game!;
+      game.setCamera('free');
+      game.rig.freePosition.set(1024, 2500, 1500);
+    });
+    await expect.poll(async () => (await counts()).near).toBe(0);
+    expect((await counts()).far).toBe(total);
+    await page.evaluate(() => {
+      const game = window.__corduroy!.game!;
+      const quad = game.world.lifts.find((l) => l.line.id === 'meadow-quad')!;
+      const mid = quad.towers[Math.floor(quad.towers.length / 2)]!;
+      game.rig.freePosition.set(mid.x, mid.topY + 5, mid.z);
+    });
+    await expect.poll(async () => (await counts()).near).toBeGreaterThan(0);
+    const mixed = await counts();
+    expect(mixed.near + mixed.far).toBe(total);
+  });
+
   test('browser: a saved career continues where it left off', async ({ page }) => {
     await page.goto('/?debug=1&mode=career');
     await gameReady(page);
