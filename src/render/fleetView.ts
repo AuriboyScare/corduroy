@@ -22,8 +22,10 @@ const VISIBLE_UPGRADES = ['engine', 'tracks', 'hydraulics', 'finisher', 'lights'
 
 /** State of the scene the models need each frame. */
 export interface FleetFrame {
-  /** Index of the machine being driven. */
+  /** Index of the machine this player drives (its dashboard runs). */
   active: number;
+  /** Whether anyone (this player or another) is driving a machine, by uid: its lights come on. */
+  isDriven: (uid: number) => boolean;
   camera: Vector3;
   /** Lamp level for the driven machine, 0 (day) to 1 (night). */
   lights: number;
@@ -80,7 +82,7 @@ export class FleetView {
       const driven = index === frame.active;
       model.sync(machine.vehicle);
       model.setDriven(driven);
-      model.setLights(driven ? frame.lights : 0);
+      model.setLights(frame.isDriven(uid) ? frame.lights : 0);
       if (driven) model.updateDashboard(frame.dt, machine.vehicle, frame.rpm);
       const b = machine.vehicle.body;
       model.updateDetail(Math.hypot(b.px - frame.camera.x, b.py - frame.camera.y, b.pz - frame.camera.z));

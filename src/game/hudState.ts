@@ -71,18 +71,58 @@ export const hud = signal<HudData | null>(null);
 export const loadingMessage = signal<string | null>('Starting');
 export const helpVisible = signal(true);
 
-export interface StartChoice {
-  mode: GameMode;
-  /** Load the saved game for this mode instead of starting fresh. */
-  resume: boolean;
-}
+export type StartChoice =
+  | {
+      mode: GameMode;
+      /** Load the saved game for this mode instead of starting fresh. */
+      resume: boolean;
+    }
+  /** Join a friend's game by its code. */
+  | { join: { code: string; name: string } };
 
-/** Shown before the world is built, to pick career or sandbox, new or saved. */
+/** Shown before the world is built, to pick career or sandbox, new or saved, or join a friend. */
 export const modeMenu = signal<{
   choose: (choice: StartChoice) => void;
   saves: Partial<Record<GameMode, SaveSummary>>;
   savingAvailable: boolean;
+  /** Why the last attempt to join failed. */
+  joinError: string | null;
+  /** The name this player used last time. */
+  playerName: string;
+  /** A game code from a join link, to fill in. */
+  joinCode: string | null;
 } | null>(null);
+
+export interface NetPlayer {
+  id: string;
+  name: string;
+  /** Name of the machine they drive, or null when watching. */
+  machine: string | null;
+  you: boolean;
+  host: boolean;
+}
+
+/** The shared-game panel and HUD line. */
+export interface NetView {
+  role: 'solo' | 'host' | 'client';
+  /** Room code while the game is open to friends. */
+  code: string | null;
+  /** A link that joins the game directly. */
+  link: string | null;
+  players: NetPlayer[];
+}
+
+export const playOpen = signal(false);
+export const netView = signal<NetView>({ role: 'solo', code: null, link: null, players: [] });
+export const netMessage = signal<{ text: string; ok: boolean } | null>(null);
+/** Set by the game; the panel calls these. */
+export const netActions = {
+  open: (_name: string): void => {},
+  close: (): void => {},
+  leave: (): void => {},
+};
+/** The game ended for this player (the host left, or this copy fell out of step). */
+export const netEnded = signal<{ reason: string; rejoin: string | null } | null>(null);
 
 export interface Notice {
   id: number;
@@ -110,6 +150,8 @@ export interface FleetEntry {
   modelId: string;
   driving: boolean;
   atGarage: boolean;
+  /** Another player driving this machine, by name. */
+  driver: string | null;
   specs: MachineSpecs;
   upgrades: {
     id: string;

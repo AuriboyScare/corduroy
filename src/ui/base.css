@@ -2064,3 +2064,171 @@ button.estop:active:not(:disabled) .estop-cap {
     transition: none !important;
   }
 }
+
+/* Text fields */
+.field {
+  display: grid;
+  gap: 4px;
+}
+.field-label {
+  font: 700 11px var(--font-cond);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mist);
+}
+.field input {
+  font: 600 15px var(--font);
+  color: var(--snow);
+  background: #071017;
+  border: 1px solid var(--steel-strong);
+  border-radius: 4px;
+  padding: 8px 10px;
+  outline: none;
+}
+.field input:focus-visible {
+  border-color: var(--glacier);
+  box-shadow: 0 0 0 2px rgba(134, 200, 255, 0.25);
+}
+.field input.code-input {
+  font: 700 22px var(--font-cond);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+.form-error {
+  color: #ffc2bd;
+  font-size: 13px;
+  line-height: 1.4;
+  border-left: 3px solid var(--bad);
+  padding: 4px 8px;
+  background: rgba(255, 93, 85, 0.08);
+}
+.start-join {
+  margin-top: 10px;
+}
+.join-form {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  cursor: default;
+}
+
+/* Play together */
+.play-open,
+.play-hosting {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+.play-open .field {
+  width: min(320px, 100%);
+}
+.play-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--frost);
+  line-height: 1.5;
+  font-size: 13.5px;
+}
+.room-code-box {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 14px 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(244, 181, 47, 0.45);
+  background: rgba(244, 181, 47, 0.06);
+}
+.room-code {
+  font: 700 48px/1 var(--font-cond);
+  letter-spacing: 0.24em;
+  color: var(--kestrel-hi);
+}
+.room-code-box.small .room-code {
+  font-size: 26px;
+}
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.room-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.player-list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+.player {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--steel);
+}
+.player-name {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.player-tag {
+  font: 700 10px var(--font-cond);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--glacier);
+  border: 1px solid rgba(134, 200, 255, 0.4);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.player-tag.host {
+  color: var(--kestrel);
+  border-color: rgba(244, 181, 47, 0.45);
+}
+.player-machine {
+  color: var(--frost);
+  font-size: 13px;
+}
+button.danger-plain {
+  color: #ffc2bd;
+  border-color: rgba(255, 93, 85, 0.45);
+  background: rgba(255, 93, 85, 0.08);
+}
+button.danger-plain:hover:not(:disabled) {
+  background: rgba(255, 93, 85, 0.18);
+  border-color: rgba(255, 93, 85, 0.7);
+}
+.modal.ended {
+  width: min(520px, 100%);
+}
+.ended-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Name tags over other players' machines */
+.name-tags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.name-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(6, 11, 17, 0.78);
+  border: 1px solid rgba(244, 181, 47, 0.55);
+  color: var(--snow);
+  font: 700 13px var(--font-cond);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  will-change: transform;
+}

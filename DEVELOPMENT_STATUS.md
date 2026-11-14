@@ -1,10 +1,10 @@
 # Development status
 
-Last updated: 2026-11-14 (branch `machine-detail`)
+Last updated: 2026-11-14 (branch `multiplayer`)
 
 ## Completed systems
 
-Each is covered by automated tests (96 unit and integration, 12 browser and Electron) and was checked in screenshots of the running game.
+Each is covered by automated tests (104 unit and integration, 14 browser and Electron) and was checked in screenshots of the running game.
 
 - **Resort layout**: four runs (Nursery, Long Meadow, Kestrel, Falcon Face) graded to their difficulty and split into ~150 m sections; base area; marker poles along every run; trail signs; boulders.
 - **Snowpack**: two layers on a 1 m grid; mass-conserving cutting, filling, compaction, tilling, and slumping to the angle of repose; thin natural base low down; tiller finish limited by consolidated cover depth; sparse 0.25 m surface-detail tiles.
@@ -15,6 +15,7 @@ Each is covered by automated tests (96 unit and integration, 12 browser and Elec
 - **Lifts**: rope tow, fixed-grip quad, detachable gondola, aerial tram. Automatic tower placement with clearance under both ropes; sagging rope; carriers looping round bullwheels; gondola cabins slowing in stations; tram shuttle with dwell; drive with start, stop, emergency stop and speed; swing on hard stops; riders and ticket income that follow grooming and cover.
 - **Weather and snowmaking**: game clock (30x), daily temperature swing, fronts, humidity, wind, lapse rate; wet-bulb from the psychrometer equation at altitude. Snow guns per run (off/auto/on), output by wet-bulb, dense snow laid downwind into the run, water and power cost.
 - **Day and night**: sun and moon by the clock; the driven machine's work lights at night.
+- **Multiplayer**: press P to open a game to friends; they join from the start menu with a six-letter code or an invite link, from anywhere online (WebRTC, matched through public Nostr relays, no server). Up to four players share the resort and its money; each drives their own machine (players without one watch and can run lifts and snowmaking). Name tags over other players' machines; joins and leaves announced; the host saves. Host-authoritative lockstep with quantised inputs, world fingerprints every 2 s, and a refusal with an explanation when two browsers compute maths differently. Verified between two separate browser processes over the internet: joined in 11 s, about 70 ms behind the host.
 - **Saving**: versioned, checksummed, compressed container; atomic writes with five backups (desktop) or the browser's private file system; autosave every 2 minutes, F5, on quit, on tab hide; recovery from backups; Continue in the start menu. Format version 3 with migrations from 1 and 2. Loaded games continue bit for bit.
 - **Sound**: diesel engine, tracks, tiller, blade, hydraulics, winch and reversing alarm synthesized on the audio thread from simulation state, placed in 3D, muffled in the cab; wind.
 - **Effects**: tiller spray, track kick-up, blade berm and spill, exhaust, snow-gun mist.
@@ -26,7 +27,8 @@ Each is covered by automated tests (96 unit and integration, 12 browser and Elec
 - Snowmobile with a towed drag (the planned starter machine), other utility vehicles.
 - Skiing visitors on the runs (riders exist only on lifts), skier wear on grooming, natural snowfall, AI operators for machines you are not driving.
 - Building or moving runs and lifts (they are fixed in the layout), terrain editing, terrain park.
-- Multiplayer.
+- Desktop LAN play without internet (the desktop app needs internet to find players, like the browser).
+- Other players' machines are silent; there is no chat.
 
 ## Known bugs and limitations
 
@@ -35,6 +37,8 @@ Each is covered by automated tests (96 unit and integration, 12 browser and Elec
 - Snow guns are silent; there is no stars or moon disc in the night sky.
 - The parked machine creeps slowly on steep slopes; there is no parking brake.
 - Track ruts and corduroy are shading only at close range.
+- Public Nostr relays come and go; a few in the default list fail and print connection errors in the browser console (harmless). Networks that block WebRTC between peers (some offices and schools) cannot play together; there is no relay (TURN) server.
+- A host's browser pauses a hidden tab, which pauses the game for everyone.
 - `npm audit` reports a moderate advisory in `minimatch` via ESLint (development tooling only).
 
 ## Performance measurements

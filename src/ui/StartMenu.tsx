@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { formatMoney, modeMenu } from '../game/hudState';
 import type { SaveSummary } from '../platform/saveFile';
 import type { GameMode } from '../sim/career';
+import { parseRoomCode } from '../net/protocol';
 import { Icon, LogoMark, MachineSilhouette } from './icons';
 import { MountainScene } from './MountainScene';
 
@@ -49,12 +50,89 @@ function SaveTicket({ mode, save, onClick }: { mode: GameMode; save: SaveSummary
   );
 }
 
-/** First screen: continue a saved game or start a new one. */
+/** Join a friend's game: your name and the code they read out or sent. */
+function JoinForm({
+  initialName,
+  initialCode,
+  error,
+  onJoin,
+  onCancel,
+}: {
+  initialName: string;
+  initialCode: string;
+  error: string | null;
+  onJoin: (name: string, code: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [code, setCode] = useState(initialCode);
+  const [problem, setProblem] = useState<string | null>(null);
+  const submit = (e: Event) => {
+    e.preventDefault();
+    const parsed = parseRoomCode(code);
+    if (!parsed) {
+      setProblem('A game code is six letters and numbers, like K7RM2P.');
+      return;
+    }
+    onJoin(name.trim().slice(0, 24) || 'Player', parsed);
+  };
+  return (
+    <form class="start-option join-form" onSubmit={submit} data-testid="join-form">
+      <span class="start-option-name">Join a friend's game</span>
+      <span class="start-option-text">
+        Ask the host to press P and open their game to friends, then type the code they give you.
+      </span>
+      <label class="field">
+        <span class="field-label">Your name</span>
+        <input
+          value={name}
+          maxLength={24}
+          placeholder="Groomer"
+          autoComplete="nickname"
+          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          data-testid="join-name"
+        />
+      </label>
+      <label class="field">
+        <span class="field-label">Game code</span>
+        <input
+          class="code-input"
+          value={code}
+          maxLength={8}
+          placeholder="K7RM2P"
+          autoComplete="off"
+          spellcheck={false}
+          onInput={(e) => setCode((e.target as HTMLInputElement).value.toUpperCase())}
+          data-testid="join-code"
+          autoFocus
+        />
+      </label>
+      {(problem ?? error) && (
+        <span class="form-error" role="alert" data-testid="join-error">
+          {problem ?? error}
+        </span>
+      )}
+      <span class="confirm-buttons">
+        <button class="primary" type="submit" data-testid="join-submit">
+          Join game
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </span>
+    </form>
+  );
+}
+
+/** First screen: continue a saved game, start a new one, or join a friend. */
 export function StartMenu() {
   const menu = modeMenu.value;
   const [confirming, setConfirming] = useState<GameMode | null>(null);
+  const [joining, setJoining] = useState<boolean | null>(null);
   if (!menu) return null;
   const { choose, saves, savingAvailable } = menu;
+  // Open the join form when a join link brought us here or the last attempt failed.
+  const showJoin = joining ?? (menu.joinError !== null || menu.joinCode !== null);
   const saved = (Object.entries(saves) as [GameMode, SaveSummary][]).sort((a, b) =>
     b[1].savedAt.localeCompare(a[1].savedAt),
   );
@@ -124,6 +202,30 @@ export function StartMenu() {
                 </span>
               </button>
             ),
+          )}
+        </div>
+        <div class="start-options start-join">
+          {showJoin ? (
+            <JoinForm
+              initialName={menu.playerName}
+              initialCode={menu.joinCode ?? ''}
+              error={menu.joinError}
+              onJoin={(name, code) => choose({ join: { code, name } })}
+              onCancel={() => setJoining(false)}
+            />
+          ) : (
+            <button class="start-option" data-testid="start-join" onClick={() => setJoining(true)}>
+              <span class="start-option-art">
+                <Icon name="riders" size={34} />
+              </span>
+              <span class="start-option-copy">
+                <span class="start-option-name">Join a friend</span>
+                <span class="start-option-text">
+                  Play in someone else's resort with a game code. Up to four players, each driving their own
+                  machine.
+                </span>
+              </span>
+            </button>
           )}
         </div>
         <div class="start-note">

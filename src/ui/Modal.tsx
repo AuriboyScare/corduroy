@@ -17,7 +17,8 @@ export function Modal({
   icon: IconName;
   title: string;
   subtitle?: ComponentChildren;
-  money: number;
+  /** The resort's balance, shown in panels that spend it. */
+  money?: number;
   onClose: () => void;
   closeLabel: string;
   testId: string;
@@ -36,12 +37,14 @@ export function Modal({
             <div class="modal-title">{title}</div>
             {subtitle && <div class="modal-sub">{subtitle}</div>}
           </div>
-          <div class="account">
-            <span class="account-label">Account</span>
-            <span class="account-value" data-testid={`${testId}-money`}>
-              {formatMoney(money)}
-            </span>
-          </div>
+          {money !== undefined && (
+            <div class="account">
+              <span class="account-label">Account</span>
+              <span class="account-value" data-testid={`${testId}-money`}>
+                {formatMoney(money)}
+              </span>
+            </div>
+          )}
           <button class="icon-button" onClick={onClose} aria-label={closeLabel} title={closeLabel}>
             <Icon name="close" size={18} />
           </button>

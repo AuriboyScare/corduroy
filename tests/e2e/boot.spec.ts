@@ -259,6 +259,71 @@ test.describe('on a GPU', () => {
     await expect.poll(builds).toBe(start + 1);
   });
 
+  test('browser: two players share a game: join by link, drive, run lifts, host closes', async ({
+    context,
+  }) => {
+    const host = await context.newPage();
+    const errors = collectErrors(host);
+    await host.goto('/?debug=1&mode=sandbox&net=local');
+    await gameReady(host);
+    await host.keyboard.press('KeyP');
+    await host.getByTestId('host-name').fill('Ana');
+    await host.getByTestId('open-game').click();
+    const code = (await host.getByTestId('room-code').textContent())!.trim();
+    expect(code).toMatch(/^[A-Z2-9]{6}$/);
+    await host.keyboard.press('Escape');
+
+    const guest = await context.newPage();
+    errors.push(...collectErrors(guest));
+    await guest.goto(`/?debug=1&net=local&join=${code}&name=Ben`);
+    await gameReady(guest);
+    await expect(guest.getByTestId('net-line')).toContainText(`Online · ${code} · 1 other player`);
+    await expect(host.getByTestId('net-line')).toContainText('1 other player');
+
+    // The guest drives their own machine; it moves in the host's world.
+    const seat = await guest.evaluate(() => window.__corduroy!.game!.world.activeMachine.owned.uid);
+    const hostSeat = await host.evaluate(() => window.__corduroy!.game!.world.activeMachine.owned.uid);
+    expect(seat).not.toBe(hostSeat);
+    const where = (uid: number) =>
+      host.evaluate((id) => {
+        const body = window.__corduroy!.game!.world.machines.find((m) => m.owned.uid === id)!.vehicle.body;
+        return { x: body.px, z: body.pz };
+      }, uid);
+    const before = await where(seat);
+    await guest.keyboard.down('KeyW');
+    await guest.waitForTimeout(2500);
+    await guest.keyboard.up('KeyW');
+    await expect
+      .poll(async () => {
+        const now = await where(seat);
+        return Math.hypot(now.x - before.x, now.z - before.z);
+      })
+      .toBeGreaterThan(3);
+
+    // A command from the guest's lift panel takes effect in both worlds.
+    await guest.keyboard.press('KeyL');
+    await guest.getByTestId('lift-meadow-quad').getByRole('button', { name: 'Stop', exact: true }).click();
+    const quadState = (page: typeof host) =>
+      page.evaluate(() => window.__corduroy!.game!.world.liftById('meadow-quad')!.state);
+    await expect.poll(() => quadState(host)).toBe('stopped');
+    await expect.poll(() => quadState(guest)).toBe('stopped');
+
+    // The host closes the game; the guest is told.
+    await host.keyboard.press('KeyP');
+    await host.getByTestId('close-game').click();
+    await expect(guest.getByTestId('net-ended')).toContainText('The host has left the game');
+    expect(errors).toEqual([]);
+  });
+
+  test('browser: joining with a code nobody is hosting explains the problem', async ({ page }) => {
+    await page.goto('/?debug=1&net=local');
+    await page.getByTestId('start-join').click();
+    await page.getByTestId('join-name').fill('Cy');
+    await page.getByTestId('join-code').fill('ab');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('join-error')).toContainText('six letters and numbers');
+  });
+
   test('browser: a saved career continues where it left off', async ({ page }) => {
     await page.goto('/?debug=1&mode=career');
     await gameReady(page);

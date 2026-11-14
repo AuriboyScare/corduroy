@@ -4,6 +4,7 @@ import {
   helpVisible,
   hud,
   loadingMessage,
+  netView,
   notices,
   snowLabel,
   type Notice,
@@ -16,6 +17,7 @@ import { Icon, LogoMark, type IconName } from './icons';
 import { Inclinometer, Lamp, LoadLamps, SnowProfile, Tachometer } from './instruments';
 import { LiftsPanel } from './Lifts';
 import { MountainScene } from './MountainScene';
+import { NetEnded, PlayPanel } from './Play';
 import { SnowmakingPanel } from './Snowmaking';
 import { StartMenu } from './StartMenu';
 
@@ -66,6 +68,7 @@ const KEY_GROUPS: { title: string; keys: [string[], string][] }[] = [
       [['G'], 'Garage: machines and upgrades'],
       [['L'], 'Lifts: build and operate'],
       [['N'], 'Snowmaking'],
+      [['P'], 'Play together'],
     ],
   },
   {
@@ -84,7 +87,8 @@ const KEY_GROUPS: { title: string; keys: [string[], string][] }[] = [
 function SaveLine() {
   const status = saveStatus.value;
   let text: string;
-  if (status.state === 'unavailable') text = 'Saving unavailable in this browser';
+  if (status.state === 'remote') text = 'The host saves this game';
+  else if (status.state === 'unavailable') text = 'Saving unavailable in this browser';
   else if (status.state === 'saving') text = 'Saving…';
   else if (status.state === 'error') text = `Save failed: ${status.message ?? 'unknown error'}`;
   else if (status.lastSavedAt === null) text = 'Not saved yet · F5 to save';
@@ -103,12 +107,28 @@ function SaveLine() {
   );
 }
 
+/** Online status while the game is shared. */
+function NetLine() {
+  const view = netView.value;
+  if (view.role === 'solo') return null;
+  const others = view.players.length - 1;
+  return (
+    <div class="foot-line ok" data-testid="net-line">
+      <Icon name="riders" size={14} />
+      <span>
+        Online{view.code ? ` · ${view.code}` : ''} · {others} other player{others === 1 ? '' : 's'}
+      </span>
+    </div>
+  );
+}
+
 function noticeIcon(n: Notice): IconName {
   if (n.bonus) return 'bonus';
   if (n.text.startsWith('Grooming')) return 'corduroy';
   if (n.text === 'Lift tickets') return 'ticket';
   if (n.text.startsWith('Winch')) return 'winch';
   if (n.text === 'Game saved') return 'disk';
+  if (n.text.endsWith('joined the game') || n.text.endsWith('left the game')) return 'riders';
   return 'snowflake';
 }
 
@@ -368,6 +388,7 @@ export function Hud() {
             </span>
           </div>
           <SaveLine />
+          <NetLine />
           <div class="foot-line">
             <Icon name="camera" size={14} />
             <span>Camera: {CAMERA_LABELS[d.camera]}</span>
@@ -413,6 +434,8 @@ export function Hud() {
       <GaragePanel />
       <LiftsPanel />
       <SnowmakingPanel />
+      <PlayPanel />
+      <NetEnded />
     </>
   );
 }

@@ -6,7 +6,7 @@
 
 ![Grooming at night under the work lights](docs/images/night.jpg)
 
-> Corduroy is in active development. What exists today is listed in [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md); the roadmap is in [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md). Detailed machine and lift models, skiers on the runs, a terrain park editor and multiplayer are being built now.
+> Corduroy is in active development. What exists today is listed in [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md); the roadmap is in [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md). Detailed lift models, skiers on the runs and a terrain park editor are being built now.
 
 ## What you can do
 
@@ -16,6 +16,7 @@
 - **Run the lifts.** Rope tow, quad chair, detachable gondola and an aerial tram. Towers are placed for rope clearance, ropes sag, cabins slow through the stations, and an emergency stop sets the chairs swinging.
 - **Make snow.** Snow guns work by wet-bulb temperature, which is computed from temperature, humidity and air pressure at altitude, and lay dense snow downwind for you to push out.
 - **Work day and night.** The sun and moon follow the clock, and the mountain goes dark at night.
+- **Play together.** Press P and open your game to friends: they join from the start menu with a six-letter code, or an invite link, from anywhere online. Up to four players share the resort and its money, each driving their own machine.
 - **Keep your progress.** Saves are atomic and checksummed, with backups. The game autosaves every 2 minutes and saves when you quit.
 
 |                                           |                                                    |
@@ -36,6 +37,7 @@
 | G        | Garage: machines and upgrades               |
 | L        | Lifts: build and operate                    |
 | N        | Snowmaking                                  |
+| P        | Play together: invite friends, see players  |
 | C        | Camera: chase, cab, free fly                |
 | F5       | Save                                        |
 | M, H     | Sound, controls card                        |
@@ -60,6 +62,8 @@ three.js r187 with the WebGPU renderer and TSL node materials, TypeScript, Vite,
 npm run check      # lint, typecheck, unit and integration tests, build
 npm run test:e2e   # browser and Electron tests
 ```
+
+Multiplayer is host-authoritative lockstep. The host's game steps the world from every player's controls and streams each step's inputs and commands. Every player's copy applies the same steps and stays identical, and a joining player receives the world as save-file bytes. Players find each other through public Nostr relays and then connect directly over WebRTC, using [Trystero](https://github.com/dmotz/trystero) (MIT), so the browser version needs no server. Copies compare fingerprints every two seconds. Players whose browsers compute floating-point maths differently are told so when they join, because their worlds would drift apart.
 
 Corduroy is developed with the help of [Claude Code](https://claude.com/claude-code). The agents, skills and hooks it uses are in `.claude/`.
 
