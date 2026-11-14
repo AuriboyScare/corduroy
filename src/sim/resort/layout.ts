@@ -30,6 +30,8 @@ export interface LiftPlan {
   readonly kind: LiftKind;
   readonly bottom: readonly [number, number];
   readonly top: readonly [number, number];
+  /** Runs riders of this lift ski down; their grooming decides how busy the lift is. */
+  readonly serves: readonly string[];
 }
 
 export const RUN_PLANS: readonly RunPlan[] = [
@@ -101,10 +103,38 @@ export const RUN_PLANS: readonly RunPlan[] = [
 ];
 
 export const LIFT_PLANS: readonly LiftPlan[] = [
-  { id: 'nursery-tow', name: 'Nursery Tow', kind: 'ropeTow', bottom: [840, 1850], top: [775, 1690] },
-  { id: 'meadow-quad', name: 'Meadow Quad', kind: 'chair', bottom: [930, 1840], top: [400, 1080] },
-  { id: 'summit-gondola', name: 'Summit Gondola', kind: 'gondola', bottom: [1100, 1850], top: [1090, 540] },
-  { id: 'ridge-tram', name: 'Ridge Tram', kind: 'tram', bottom: [1300, 1870], top: [1530, 560] },
+  {
+    id: 'nursery-tow',
+    name: 'Nursery Tow',
+    kind: 'ropeTow',
+    bottom: [840, 1850],
+    top: [775, 1690],
+    serves: ['nursery'],
+  },
+  {
+    id: 'meadow-quad',
+    name: 'Meadow Quad',
+    kind: 'chair',
+    bottom: [930, 1840],
+    top: [400, 1080],
+    serves: ['long-meadow'],
+  },
+  {
+    id: 'summit-gondola',
+    name: 'Summit Gondola',
+    kind: 'gondola',
+    bottom: [1100, 1850],
+    top: [1090, 540],
+    serves: ['kestrel', 'long-meadow'],
+  },
+  {
+    id: 'ridge-tram',
+    name: 'Ridge Tram',
+    kind: 'tram',
+    bottom: [1300, 1870],
+    top: [1530, 560],
+    serves: ['falcon-face'],
+  },
 ];
 
 /** Half width of the cleared corridor under each kind of lift, m. */

@@ -160,7 +160,8 @@ export function createResortProps(mountain: Mountain, snow: Snowpack): Group {
       mesh.setMatrixAt(k, matrix);
       if (geometry === cap) mesh.setColorAt(k, tint.setHex(p.color));
     });
-    mesh.castShadow = true;
+    // Poles are a few centimetres thick: their shadows would not show.
+    mesh.castShadow = false;
     mesh.computeBoundingSphere();
     group.add(mesh);
   }

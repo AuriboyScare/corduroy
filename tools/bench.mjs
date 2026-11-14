@@ -25,7 +25,7 @@ const browser = await chromium.launch({
   args: ['--enable-unsafe-webgpu'],
 });
 const page = await browser.newPage({ viewport: { width, height } });
-await page.goto('http://127.0.0.1:5199/?debug=1');
+await page.goto('http://127.0.0.1:5199/?debug=1&mode=sandbox');
 await page.waitForFunction(() => (window.__corduroy?.game?.frames ?? 0) > 20, undefined, { timeout: 90_000 });
 const pixels = await page.evaluate(() => {
   const c = document.getElementById('view');

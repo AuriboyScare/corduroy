@@ -27,6 +27,13 @@ export const SECTION_DONE = 0.9;
 export const SECTION_REARM = 0.5;
 
 export const CAREER_START_MONEY = 2_000;
+/** Lifts a new career begins with. */
+export const CAREER_START_LIFTS = ['nursery-tow'];
+/** What the resort keeps from each lift ride. */
+export const TICKET_SHARE_PER_RIDE = 1.1;
+/** Share of a lift's capacity used with its runs ungroomed, and with them fully groomed. */
+export const LIFT_USE_UNGROOMED = 0.2;
+export const LIFT_USE_GROOMED = 1;
 export const CAREER_START_MACHINE = 'kestrel-260';
 
 export interface EarningEvent {
@@ -39,6 +46,8 @@ export class Career {
   readonly mode: GameMode;
   money: number;
   readonly machines: OwnedMachine[] = [];
+  /** Ids of the lifts the resort has built. */
+  readonly lifts = new Set<string>();
   /** Lifetime earnings, for the HUD. */
   earned = 0;
   /** The uid the next machine will get; saved so uids are never reused. */

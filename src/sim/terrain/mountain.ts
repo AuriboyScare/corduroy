@@ -43,6 +43,7 @@ export interface LiftLine {
   readonly kind: LiftKind;
   readonly bottom: { readonly x: number; readonly z: number };
   readonly top: { readonly x: number; readonly z: number };
+  readonly serves: readonly string[];
 }
 
 export interface WinchAnchor {
@@ -369,6 +370,7 @@ export function generateMountain(seed: number, plan: ResortPlan = { runs: RUN_PL
     kind: p.kind,
     bottom: { x: p.bottom[0], z: p.bottom[1] },
     top: { x: p.top[0], z: p.top[1] },
+    serves: p.serves,
   }));
   const pads = lifts.map((lift) => ({
     x: lift.top.x,

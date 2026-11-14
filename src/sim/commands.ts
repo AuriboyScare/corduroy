@@ -7,7 +7,15 @@ export type Command =
   | { readonly type: 'buyMachine'; readonly model: string }
   | { readonly type: 'buyUpgrade'; readonly machine: number; readonly upgrade: string }
   | { readonly type: 'switchMachine'; readonly machine: number }
-  | { readonly type: 'winch'; readonly machine: number; readonly hook: boolean };
+  | { readonly type: 'winch'; readonly machine: number; readonly hook: boolean }
+  | { readonly type: 'buyLift'; readonly lift: string }
+  | {
+      readonly type: 'liftControl';
+      readonly lift: string;
+      readonly action: 'start' | 'stop' | 'emergency' | 'speed';
+      /** Share of full line speed, for 'speed'. */
+      readonly speed?: number;
+    };
 
 export type CommandResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 

@@ -4,6 +4,7 @@ import { createEnvironment } from '../render/environment';
 import { FleetView } from '../render/fleetView';
 import { createForest } from '../render/forest';
 import { createGarage } from '../render/garage';
+import { LiftsView } from '../render/liftView';
 import { MachineEffects } from '../render/machineEffects';
 import { Particles } from '../render/particles';
 import { createResortProps } from '../render/resortProps';
@@ -30,6 +31,11 @@ import {
   garageSelected,
   garageView,
   helpVisible,
+  liftActions,
+  liftsMessage,
+  liftsOpen,
+  liftsView,
+  type LiftEntry,
   hud,
   loadingMessage,
   modeMenu,
@@ -56,6 +62,8 @@ export interface GameDebug {
   apply(command: Command): ReturnType<World['apply']>;
   /** Drives the Kestrel run uphill on autopilot for a number of steps, without rendering. */
   autoGroom(steps: number): void;
+  /** Named parts of the scene, for profiling (hide one and measure). */
+  layers: Record<string, { visible: boolean }>;
   /** Audio state, for tests. */
   audio(): { context: string; synth: boolean };
   /** Saves now; resolves true on success. */
@@ -162,7 +170,8 @@ export async function startGame({
   scene.add(terrain.group);
   const forest = createForest(mountain, snow);
   scene.add(forest.group);
-  scene.add(createResortProps(mountain, snow));
+  const props = createResortProps(mountain, snow);
+  scene.add(props);
   const garage = createGarage();
   garage.position.set(
     mountain.depot.x,
@@ -174,6 +183,8 @@ export async function startGame({
   scene.add(fleet.group);
   const winches = new WinchView(mountain, snow);
   scene.add(winches.group);
+  const liftsScene = new LiftsView(snow);
+  scene.add(liftsScene.group);
   const particles = new Particles(5000);
   scene.add(particles.mesh);
   const effects = new MachineEffects(particles, snow);
@@ -216,6 +227,44 @@ export async function startGame({
   };
   garageActions.drive = (machine) => {
     if (apply({ type: 'switchMachine', machine }).ok) garageOpen.value = false;
+  };
+
+  const refreshLifts = (): void => {
+    const lifts: LiftEntry[] = world.lifts.map((lift) => ({
+      id: lift.line.id,
+      name: lift.line.name,
+      kind: lift.type.label,
+      built: world.career.lifts.has(lift.line.id),
+      price: lift.type.price,
+      state: lift.state,
+      speedKmh: lift.speedMs * 3.6,
+      speedSetting: lift.speedSetting,
+      ridersPerHour: world.liftRidersPerHour(lift),
+      capacityPerHour: lift.capacityPerHour,
+      lengthM: lift.lengthM,
+      towers: lift.towers.length - 2,
+      serves: lift.line.serves.map((id) => {
+        const r = mountain.runs.findIndex((run) => run.id === id);
+        return { name: mountain.runs[r]!.name, groomed: world.runGroomedFraction(r) };
+      }),
+    }));
+    liftsView.value = { money: world.career.money, mode: world.career.mode, lifts };
+  };
+  liftActions.buy = (lift) => {
+    const result = world.apply({ type: 'buyLift', lift });
+    liftsMessage.value = result.ok
+      ? { text: `${world.liftById(lift)!.line.name} built and running.`, ok: true }
+      : { text: result.reason, ok: false };
+    refreshLifts();
+  };
+  liftActions.control = (lift, action, speed) => {
+    const result = world.apply(
+      speed === undefined
+        ? { type: 'liftControl', lift, action }
+        : { type: 'liftControl', lift, action, speed },
+    );
+    liftsMessage.value = result.ok ? null : { text: result.reason, ok: false };
+    refreshLifts();
   };
 
   const refreshGarage = (): void => {
@@ -278,6 +327,7 @@ export async function startGame({
     setCamera: (cameraMode) => rig.setMode(cameraMode),
     apply,
     save: () => saves.save(),
+    layers: {},
     audio: () => audio.state,
     autoGroom: (steps) => {
       const pilot = new PathFollower(runById(mountain, 'kestrel').line, -1, 0.62);
@@ -302,7 +352,8 @@ export async function startGame({
     if (world.events.length === 0 && notices.value.every((n) => now - n.at < 4500)) return;
     let list = notices.value.filter((n) => now - n.at < 4500);
     for (const event of world.events) {
-      const bonus = !event.label.startsWith('Grooming');
+      // Steady income (grooming, lift tickets) adds up in one running notice; bonuses stand alone.
+      const bonus = !event.label.startsWith('Grooming') && event.label !== 'Lift tickets';
       const running = !bonus
         ? list.find((n) => !n.bonus && n.amount !== null && n.text === event.label)
         : undefined;
@@ -372,6 +423,7 @@ export async function startGame({
       machine: cat.spec.name,
     };
     if (garageOpen.value) refreshGarage();
+    if (liftsOpen.value) refreshLifts();
   };
 
   await renderer.setAnimationLoop(() => {
@@ -387,7 +439,18 @@ export async function startGame({
         refreshGarage();
       }
     }
-    if (input.wasPressed('Escape')) garageOpen.value = false;
+    if (input.wasPressed('KeyL')) {
+      liftsOpen.value = !liftsOpen.value;
+      liftsMessage.value = null;
+      if (liftsOpen.value) {
+        garageOpen.value = false;
+        refreshLifts();
+      }
+    }
+    if (input.wasPressed('Escape')) {
+      garageOpen.value = false;
+      liftsOpen.value = false;
+    }
     if (input.wasPressed('KeyY') && rig.mode !== 'free' && !garageOpen.value) {
       const machine = world.activeMachine;
       const result = world.apply({
@@ -417,7 +480,7 @@ export async function startGame({
     if (input.wasPressed('KeyC')) rig.cycle();
     if (input.wasPressed('KeyH')) helpVisible.value = !helpVisible.value;
     if (input.wasPressed('KeyM')) audio.muted = !audio.muted;
-    const driving = rig.mode !== 'free' && !garageOpen.value;
+    const driving = rig.mode !== 'free' && !garageOpen.value && !liftsOpen.value;
     const catInput = debug.autoInput ?? controls.read(input, driving, world.cat);
     lastInput = catInput;
     const steps = clock.advance(dt);
@@ -435,6 +498,7 @@ export async function startGame({
     fleet.sync(world.machines);
     winches.sync(world.machines, fleet);
     effects.update(dt, world.cat);
+    liftsScene.update(world.lifts, world.career.lifts, (lift) => world.liftUse(lift));
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
     rig.update(dt, input, world.cat);
     input.endFrame();
@@ -474,6 +538,24 @@ export async function startGame({
       { id: noticeId++, text: startNotice, amount: null, at: performance.now() + 6000, bonus: false },
     ];
   }
+
+  debug.layers = {
+    props,
+    garage,
+    lifts: liftsScene.group,
+    particles: particles.mesh,
+    forest: forest.group,
+    fleet: fleet.group,
+    terrain: terrain.group,
+  };
+  debug.layers.shadows = {
+    get visible() {
+      return renderer.shadowMap.enabled;
+    },
+    set visible(on: boolean) {
+      renderer.shadowMap.enabled = on;
+    },
+  };
 
   loadingMessage.value = null;
   return debug;

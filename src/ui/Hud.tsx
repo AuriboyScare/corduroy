@@ -4,6 +4,7 @@ import type { Difficulty } from '../sim/resort/layout';
 import { DIFFICULTY_LABEL } from '../sim/resort/layout';
 import { saveStatus } from '../game/saving';
 import { GaragePanel } from './Garage';
+import { LiftsPanel } from './Lifts';
 import { StartMenu } from './StartMenu';
 
 function Bar({ value, warnAt = 0.85 }: { value: number; warnAt?: number }) {
@@ -50,6 +51,7 @@ const KEYS: [string, string][] = [
   ['Y', 'Winch hook / unhook (600W)'],
   ['[ / ]', 'Winch tension down / up'],
   ['G', 'Garage: machines and upgrades'],
+  ['L', 'Lifts: build and operate'],
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
   ['Scroll', 'Zoom (chase camera)'],
@@ -244,6 +246,7 @@ export function Hud() {
       )}
 
       <GaragePanel />
+      <LiftsPanel />
     </>
   );
 }

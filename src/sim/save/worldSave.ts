@@ -1,10 +1,11 @@
-import type { GameMode, OwnedMachine } from '../career';
+import { CAREER_START_LIFTS, type GameMode, type OwnedMachine } from '../career';
+import { LIFT_PLANS } from '../resort/layout';
 import { Snowpack, TILE_CELLS, TILE_M } from '../snow/snowpack';
 import { generateMountain } from '../terrain/mountain';
 import { World } from '../world';
 
 /** Version of the world data inside a save. Bump it and add a migration when the shape changes. */
-export const WORLD_SAVE_VERSION = 1;
+export const WORLD_SAVE_VERSION = 2;
 
 interface MachineState {
   uid: number;
@@ -37,6 +38,9 @@ export interface WorldMeta {
   pendingLabel: string;
   /** Grooming done since the last payout, per section, not yet paid. */
   groomCredit: number[];
+  /** Built lifts and their moving state. Added in version 2. */
+  lifts: { id: string; state: number[] }[];
+  pendingTickets: number;
 }
 
 /** Everything needed to rebuild a world: JSON metadata and binary snow data. */
@@ -187,6 +191,10 @@ export function captureWorld(world: World): WorldSnapshot {
       pendingPay: world.pendingPay,
       pendingLabel: world.pendingLabel,
       groomCredit: Array.from(snow.groomCredit),
+      lifts: world.lifts
+        .filter((l) => career.lifts.has(l.line.id))
+        .map((l) => ({ id: l.line.id, state: l.captureState() })),
+      pendingTickets: world.pendingTickets,
     },
     cells: encodeCells(snow),
     surface: encodeSurface(snow),
@@ -196,8 +204,7 @@ export function captureWorld(world: World): WorldSnapshot {
 
 /** Rebuilds a world from a snapshot: regenerates the mountain from its seed, then applies the changes. */
 export function restoreWorld(snapshot: WorldSnapshot): World {
-  const { meta } = snapshot;
-  if (meta.version !== WORLD_SAVE_VERSION) throw new Error(`unsupported world save version ${meta.version}`);
+  const meta = migrate(snapshot.meta);
   const mountain = generateMountain(meta.seed);
   const snow = new Snowpack(mountain);
   snow.fillNatural(meta.seed);
@@ -209,7 +216,7 @@ export function restoreWorld(snapshot: WorldSnapshot): World {
   snow.coarseDirty = true;
   snow.recountGrooming();
 
-  const world = new World(mountain, snow, { mode: meta.mode, fleet: [] });
+  const world = new World(mountain, snow, { mode: meta.mode, fleet: [], lifts: meta.lifts.map((l) => l.id) });
   const career = world.career;
   if (meta.mode === 'career') career.money = meta.money ?? 0;
   career.earned = meta.earned;
@@ -258,5 +265,21 @@ export function restoreWorld(snapshot: WorldSnapshot): World {
   world.pendingPay = meta.pendingPay;
   world.pendingLabel = meta.pendingLabel;
   snow.groomCredit.set(meta.groomCredit);
+  world.pendingTickets = meta.pendingTickets;
+  for (const saved of meta.lifts) {
+    if (saved.state.length > 0) world.liftById(saved.id)?.restoreState(saved.state);
+  }
   return world;
+}
+
+/** Brings older saves up to the current version. Each step handles one version. */
+function migrate(meta: WorldMeta): WorldMeta {
+  let m = meta;
+  if (m.version === 1) {
+    // Version 1 had no lifts: give the save the lifts a new game of its mode starts with.
+    const lifts = m.mode === 'sandbox' ? LIFT_PLANS.map((p) => p.id) : CAREER_START_LIFTS;
+    m = { ...m, version: 2, lifts: lifts.map((id) => ({ id, state: [] })), pendingTickets: 0 };
+  }
+  if (m.version !== WORLD_SAVE_VERSION) throw new Error(`unsupported world save version ${m.version}`);
+  return m;
 }

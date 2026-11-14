@@ -142,3 +142,27 @@ export function snowLabel(topCm: number, density: number, groomed: boolean): str
 
 export const formatMoney = (amount: number): string =>
   amount === Infinity ? 'Unlimited' : `$${Math.floor(amount).toLocaleString('en-US')}`;
+
+export interface LiftEntry {
+  id: string;
+  name: string;
+  kind: string;
+  built: boolean;
+  price: number;
+  state: 'stopped' | 'running' | 'emergency';
+  speedKmh: number;
+  speedSetting: number;
+  ridersPerHour: number;
+  capacityPerHour: number;
+  lengthM: number;
+  towers: number;
+  serves: { name: string; groomed: number }[];
+}
+
+export const liftsOpen = signal(false);
+export const liftsView = signal<{ money: number; mode: GameMode; lifts: LiftEntry[] } | null>(null);
+export const liftsMessage = signal<{ text: string; ok: boolean } | null>(null);
+export const liftActions = {
+  buy: (_lift: string): void => {},
+  control: (_lift: string, _action: 'start' | 'stop' | 'emergency' | 'speed', _speed?: number): void => {},
+};

@@ -1,6 +1,10 @@
 import {
   Career,
+  CAREER_START_LIFTS,
   CAREER_START_MACHINE,
+  LIFT_USE_GROOMED,
+  LIFT_USE_UNGROOMED,
+  TICKET_SHARE_PER_RIDE,
   GROOM_RATE,
   RUN_BONUS_SHARE,
   SECTION_BONUS_SHARE,
@@ -11,6 +15,7 @@ import {
   type OwnedMachine,
 } from './career';
 import { fail, OK, type Command, type CommandResult } from './commands';
+import { Lift } from './lifts/lift';
 import { effectiveSpec, machineModel, MACHINE_MODELS, upgradePrice } from './machines/catalog';
 import type { Snowpack } from './snow/snowpack';
 import { TREE_STRIDE, type Mountain } from './terrain/mountain';
@@ -95,6 +100,8 @@ export interface WorldOptions {
   fleet?: readonly string[];
   /** Model of the machine the player starts in. */
   drive?: string;
+  /** Lift ids the resort starts with. */
+  lifts?: readonly string[];
 }
 
 /** Everything that is simulated: the mountain, its snow, the machines and the resort's books. */
@@ -103,6 +110,10 @@ export class World {
   readonly snow: Snowpack;
   readonly career: Career;
   readonly machines: Machine[] = [];
+  /** Every lift line on the mountain; only those in career.lifts are built and run. */
+  readonly lifts: Lift[];
+  /** Ticket money owed but below a dollar. */
+  pendingTickets = 0;
   /** Index into machines of the one the player drives. */
   activeIndex = 0;
   /** Fixed step length, s. */
@@ -130,6 +141,12 @@ export class World {
     this.credit = new Float64Array(mountain.sections.length + 1);
     this.sectionBonusPaid = new Uint8Array(mountain.sections.length);
     this.runBonusPaid = new Uint8Array(mountain.runs.length);
+    this.lifts = mountain.lifts.map((line) => new Lift(line, snow));
+    for (const id of options.lifts ??
+      (mode === 'sandbox' ? mountain.lifts.map((l) => l.id) : CAREER_START_LIFTS)) {
+      if (this.lifts.some((l) => l.line.id === id)) this.career.lifts.add(id);
+    }
+    for (const lift of this.lifts) if (this.career.lifts.has(lift.line.id)) lift.start();
     const fleet =
       options.fleet ?? (mode === 'sandbox' ? MACHINE_MODELS.map((m) => m.id) : [CAREER_START_MACHINE]);
     for (const model of fleet) this.spawn(this.career.addMachine(model));
@@ -158,6 +175,7 @@ export class World {
         this.trees,
       );
     }
+    for (const lift of this.lifts) if (this.career.lifts.has(lift.line.id)) lift.step(this.stepSeconds);
     this.stepCount++;
     if (this.stepCount % PAYOUT_INTERVAL_STEPS === 0) this.payOut();
   }
@@ -215,6 +233,26 @@ export class World {
         this.hookedAnchor.set(machine.owned.uid, anchor.name);
         return OK;
       }
+      case 'buyLift': {
+        const lift = this.liftById(command.lift);
+        if (!lift) return fail('Unknown lift.');
+        if (career.lifts.has(lift.line.id)) return fail('That lift is already built.');
+        if (!career.canAfford(lift.type.price))
+          return fail(`You need $${lift.type.price.toLocaleString('en-US')}.`);
+        career.spend(lift.type.price);
+        career.lifts.add(lift.line.id);
+        lift.start();
+        return OK;
+      }
+      case 'liftControl': {
+        const lift = this.liftById(command.lift);
+        if (!lift || !career.lifts.has(command.lift)) return fail('That lift is not built.');
+        if (command.action === 'start') lift.start();
+        else if (command.action === 'stop') lift.stop();
+        else if (command.action === 'emergency') lift.emergencyStop();
+        else lift.speedSetting = Math.max(0.25, Math.min(1, command.speed ?? 1));
+        return OK;
+      }
       case 'switchMachine': {
         const index = this.machines.findIndex((m) => m.owned.uid === command.machine);
         if (index < 0) return fail('Unknown machine.');
@@ -239,6 +277,26 @@ export class World {
       if (!best || distance < best.distance) best = { name: a.name, point: { x: a.x, y, z: a.z }, distance };
     }
     return best;
+  }
+
+  liftById(id: string): Lift | undefined {
+    return this.lifts.find((l) => l.line.id === id);
+  }
+
+  /** Share of a lift's capacity riders are using: more when the runs it serves are groomed. */
+  liftUse(lift: Lift): number {
+    const served = lift.line.serves
+      .map((id) => this.mountain.runs.findIndex((r) => r.id === id))
+      .filter((r) => r >= 0);
+    const groomed =
+      served.length > 0 ? served.reduce((sum, r) => sum + this.runGroomedFraction(r), 0) / served.length : 0;
+    return LIFT_USE_UNGROOMED + (LIFT_USE_GROOMED - LIFT_USE_UNGROOMED) * groomed;
+  }
+
+  /** Riders per hour a built lift is carrying right now. */
+  liftRidersPerHour(lift: Lift): number {
+    if (!this.career.lifts.has(lift.line.id)) return 0;
+    return lift.capacityPerHour * (lift.speedMs / lift.type.lineSpeedMs) * this.liftUse(lift);
   }
 
   /** The hook point of a named anchor (the ring on top of its post). */
@@ -301,6 +359,18 @@ export class World {
       career.earn(whole);
       this.events.push({ amount: whole, label: this.pendingLabel });
       this.pendingPay -= whole;
+    }
+
+    // Lift tickets for the riders carried since the last payout.
+    const interval = PAYOUT_INTERVAL_STEPS * this.stepSeconds;
+    for (const lift of this.lifts) {
+      this.pendingTickets += (this.liftRidersPerHour(lift) / 3600) * interval * TICKET_SHARE_PER_RIDE;
+    }
+    if (this.pendingTickets >= 1) {
+      const whole = Math.floor(this.pendingTickets);
+      career.earn(whole);
+      this.events.push({ amount: whole, label: 'Lift tickets' });
+      this.pendingTickets -= whole;
     }
 
     // Bonuses for finishing sections and whole runs; they re-arm once the grooming wears away.
