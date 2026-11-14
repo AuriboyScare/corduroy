@@ -45,6 +45,13 @@ export interface HudData {
   /** The cell under the machine carries finished grooming. */
   groomedHere: boolean;
   altitudeM: number;
+  /** Consolidated cover under the machine, cm, and whether it is too thin to groom well. */
+  coverCm: number;
+  thinCover: boolean;
+  clock: string;
+  tempC: number;
+  wetBulbC: number;
+  windMs: number;
   pisteGroomed: number;
   runs: RunStatus[];
   money: number;
@@ -165,4 +172,32 @@ export const liftsMessage = signal<{ text: string; ok: boolean } | null>(null);
 export const liftActions = {
   buy: (_lift: string): void => {},
   control: (_lift: string, _action: 'start' | 'stop' | 'emergency' | 'speed', _speed?: number): void => {},
+};
+
+export interface SnowmakingEntry {
+  runId: string;
+  name: string;
+  guns: number;
+  installed: boolean;
+  price: number;
+  mode: 'off' | 'auto' | 'on';
+  running: number;
+  /** Snow being made on the run now, m³ per game hour. */
+  outputM3h: number;
+  costPerHour: number;
+  cover: number;
+  wetBulbC: number;
+}
+
+export const snowmakingOpen = signal(false);
+export const snowmakingView = signal<{
+  money: number;
+  mode: GameMode;
+  spent: number;
+  runs: SnowmakingEntry[];
+} | null>(null);
+export const snowmakingMessage = signal<{ text: string; ok: boolean } | null>(null);
+export const snowmakingActions = {
+  install: (_run: string): void => {},
+  setMode: (_run: string, _mode: 'off' | 'auto' | 'on'): void => {},
 };

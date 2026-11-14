@@ -1,3 +1,5 @@
+import type { GunMode } from './snowmaking';
+
 /**
  * Everything a player can do to the world goes through one of these. The world validates and
  * applies them; later the same objects are journalled for crash recovery and sent over the
@@ -9,6 +11,8 @@ export type Command =
   | { readonly type: 'switchMachine'; readonly machine: number }
   | { readonly type: 'winch'; readonly machine: number; readonly hook: boolean }
   | { readonly type: 'buyLift'; readonly lift: string }
+  | { readonly type: 'installSnowmaking'; readonly run: string }
+  | { readonly type: 'snowmakingMode'; readonly run: string; readonly mode: GunMode }
   | {
       readonly type: 'liftControl';
       readonly lift: string;

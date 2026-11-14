@@ -5,6 +5,7 @@ import { FleetView } from '../render/fleetView';
 import { createForest } from '../render/forest';
 import { createGarage } from '../render/garage';
 import { LiftsView } from '../render/liftView';
+import { SnowGunsView } from '../render/snowGunsView';
 import { MachineEffects } from '../render/machineEffects';
 import { Particles } from '../render/particles';
 import { createResortProps } from '../render/resortProps';
@@ -16,7 +17,9 @@ import type { GameMode } from '../sim/career';
 import { FixedStepClock } from '../sim/clock';
 import type { Command } from '../sim/commands';
 import { machineModel, MACHINE_MODELS, UPGRADES, upgradePrice } from '../sim/machines/catalog';
+import { COST_PER_M3, MADE_SNOW_DENSITY } from '../sim/snowmaking';
 import { Snowpack } from '../sim/snow/snowpack';
+import type { Conditions } from '../sim/weather';
 import { generateMountain, runById } from '../sim/terrain/mountain';
 import { PathFollower } from '../sim/vehicles/autopilot';
 import type { SnowcatInput } from '../sim/vehicles/snowcat';
@@ -35,7 +38,12 @@ import {
   liftsMessage,
   liftsOpen,
   liftsView,
+  snowmakingActions,
+  snowmakingMessage,
+  snowmakingOpen,
+  snowmakingView,
   type LiftEntry,
+  type SnowmakingEntry,
   hud,
   loadingMessage,
   modeMenu,
@@ -183,6 +191,8 @@ export async function startGame({
   scene.add(fleet.group);
   const winches = new WinchView(mountain, snow);
   scene.add(winches.group);
+  const gunsScene = new SnowGunsView(world.snowmaking, snow);
+  scene.add(gunsScene.group);
   const liftsScene = new LiftsView(snow);
   scene.add(liftsScene.group);
   const particles = new Particles(5000);
@@ -265,6 +275,50 @@ export async function startGame({
     );
     liftsMessage.value = result.ok ? null : { text: result.reason, ok: false };
     refreshLifts();
+  };
+
+  const conditions: Conditions = { tempC: 0, humidity: 0, wetBulbC: 0, windMs: 0, windToward: 0 };
+  const refreshSnowmaking = (): void => {
+    const making = world.snowmaking;
+    const runs: SnowmakingEntry[] = mountain.runs.map((run, r) => {
+      const guns = making.guns.map((g, k) => ({ g, k })).filter(({ g }) => g.run === r);
+      const output = guns.reduce((sum, { k }) => sum + making.output[k]!, 0);
+      const mid = guns[Math.floor(guns.length / 2)]?.g;
+      const wet = mid ? world.weather.at(mid.y, conditions).wetBulbC : 0;
+      const m3h = (output * 3600) / MADE_SNOW_DENSITY;
+      return {
+        runId: run.id,
+        name: run.name,
+        guns: guns.length,
+        installed: making.installed[r]!,
+        price: making.price(r),
+        mode: making.mode[r]!,
+        running: guns.filter(({ k }) => making.output[k]! > 0).length,
+        outputM3h: m3h,
+        costPerHour: m3h * COST_PER_M3,
+        cover: world.runCover[r]!,
+        wetBulbC: wet,
+      };
+    });
+    snowmakingView.value = {
+      money: world.career.money,
+      mode: world.career.mode,
+      spent: world.snowmakingSpent,
+      runs,
+    };
+  };
+  snowmakingActions.install = (run) => {
+    const result = world.apply({ type: 'installSnowmaking', run });
+    const name = mountain.runs.find((r) => r.id === run)?.name ?? run;
+    snowmakingMessage.value = result.ok
+      ? { text: `Snow guns installed on ${name}.`, ok: true }
+      : { text: result.reason, ok: false };
+    refreshSnowmaking();
+  };
+  snowmakingActions.setMode = (run, mode) => {
+    const result = world.apply({ type: 'snowmakingMode', run, mode });
+    snowmakingMessage.value = result.ok ? null : { text: result.reason, ok: false };
+    refreshSnowmaking();
   };
 
   const refreshGarage = (): void => {
@@ -405,6 +459,12 @@ export async function startGame({
       snowDensity: snow.density[i]!,
       groomedHere: snow.groomed[i]! > 0,
       altitudeM: mountain.datumAltitudeM + cat.body.py,
+      coverCm: snow.coverDepth(i) * 100,
+      thinCover: snow.coverQuality(i) < 0.7,
+      clock: `Day ${world.weather.day} · ${String(Math.floor(world.weather.hour)).padStart(2, '0')}:${String(Math.floor((world.weather.hour % 1) * 60)).padStart(2, '0')}`,
+      tempC: world.weather.at(cat.body.py, conditions).tempC,
+      wetBulbC: conditions.wetBulbC,
+      windMs: conditions.windMs,
       pisteGroomed: world.pisteGroomedFraction,
       runs: mountain.runs.map((run, r) => ({
         name: run.name,
@@ -424,6 +484,7 @@ export async function startGame({
     };
     if (garageOpen.value) refreshGarage();
     if (liftsOpen.value) refreshLifts();
+    if (snowmakingOpen.value) refreshSnowmaking();
   };
 
   await renderer.setAnimationLoop(() => {
@@ -447,9 +508,19 @@ export async function startGame({
         refreshLifts();
       }
     }
+    if (input.wasPressed('KeyN')) {
+      snowmakingOpen.value = !snowmakingOpen.value;
+      snowmakingMessage.value = null;
+      if (snowmakingOpen.value) {
+        garageOpen.value = false;
+        liftsOpen.value = false;
+        refreshSnowmaking();
+      }
+    }
     if (input.wasPressed('Escape')) {
       garageOpen.value = false;
       liftsOpen.value = false;
+      snowmakingOpen.value = false;
     }
     if (input.wasPressed('KeyY') && rig.mode !== 'free' && !garageOpen.value) {
       const machine = world.activeMachine;
@@ -480,7 +551,7 @@ export async function startGame({
     if (input.wasPressed('KeyC')) rig.cycle();
     if (input.wasPressed('KeyH')) helpVisible.value = !helpVisible.value;
     if (input.wasPressed('KeyM')) audio.muted = !audio.muted;
-    const driving = rig.mode !== 'free' && !garageOpen.value && !liftsOpen.value;
+    const driving = rig.mode !== 'free' && !garageOpen.value && !liftsOpen.value && !snowmakingOpen.value;
     const catInput = debug.autoInput ?? controls.read(input, driving, world.cat);
     lastInput = catInput;
     const steps = clock.advance(dt);
@@ -499,6 +570,7 @@ export async function startGame({
     winches.sync(world.machines, fleet);
     effects.update(dt, world.cat);
     liftsScene.update(world.lifts, world.career.lifts, (lift) => world.liftUse(lift));
+    gunsScene.update(dt, particles, world.weather, camera.position);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);
     rig.update(dt, input, world.cat);
     input.endFrame();

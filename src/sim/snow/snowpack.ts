@@ -9,6 +9,11 @@ export const GROOMED_DENSITY = 450;
 /** Density loose snow reaches when pushed and dropped by a blade, kg/m3. */
 export const PUSHED_DENSITY = 380;
 
+/** Consolidated cover below which a tiller brings up stones and grass, m. */
+export const THIN_COVER_M = 0.12;
+/** Consolidated cover a tiller needs for a full-quality finish, m. */
+export const GOOD_COVER_M = 0.4;
+
 /** Steepest slope loose, pushed snow can hold before it slumps (about 38 degrees). */
 export const REPOSE_SLOPE = 0.78;
 
@@ -116,7 +121,9 @@ export class Snowpack {
         const hold = 1 - smoothstep(0.85, 1.35, slope);
         const drift = fbm2(ix / 38, iz / 38, seed + 40, 3);
         if (this.runOf[i]) {
-          this.base[i] = 0.55;
+          // Runs keep a packed base, but it is thin low down near the valley: those stretches
+          // need snowmaking before they can be groomed well.
+          this.base[i] = 0.12 + 0.43 * smoothstep(15, 200, g[i]!);
           this.top[i] = 0.24 + 0.03 * drift;
           this.density[i] = 115;
         } else {
@@ -166,6 +173,16 @@ export class Snowpack {
     const rho = this.density[i]!;
     const top = this.top[i]!;
     return this.ground[i]! + this.base[i]! + (rho < compactedDensity ? (top * rho) / compactedDensity : top);
+  }
+
+  /** Depth of the cover as if all of it were consolidated base, m: what holds up to grooming. */
+  coverDepth(i: number): number {
+    return this.base[i]! + (this.top[i]! * this.density[i]!) / BASE_DENSITY;
+  }
+
+  /** How well a tiller can work a cell, 0..1: thin cover means stones and a poor finish. */
+  coverQuality(i: number): number {
+    return clamp01((this.coverDepth(i) - THIN_COVER_M) / (GOOD_COVER_M - THIN_COVER_M));
   }
 
   /** Total snow mass on the ground, kg. */

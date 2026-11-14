@@ -5,6 +5,7 @@ import { DIFFICULTY_LABEL } from '../sim/resort/layout';
 import { saveStatus } from '../game/saving';
 import { GaragePanel } from './Garage';
 import { LiftsPanel } from './Lifts';
+import { SnowmakingPanel } from './Snowmaking';
 import { StartMenu } from './StartMenu';
 
 function Bar({ value, warnAt = 0.85 }: { value: number; warnAt?: number }) {
@@ -52,6 +53,7 @@ const KEYS: [string, string][] = [
   ['[ / ]', 'Winch tension down / up'],
   ['G', 'Garage: machines and upgrades'],
   ['L', 'Lifts: build and operate'],
+  ['N', 'Snowmaking'],
   ['C', 'Camera: chase, cab, free fly'],
   ['Drag', 'Look around'],
   ['Scroll', 'Zoom (chase camera)'],
@@ -186,6 +188,17 @@ export function Hud() {
         <Row label="Top layer" value={d.snowTopCm.toFixed(0)} unit="cm" />
         <Row label="Density" value={d.snowDensity.toFixed(0)} unit="kg/m³" />
         <Row label="Base" value={d.snowBaseCm.toFixed(0)} unit="cm" />
+        <div class="row">
+          <span class="label">Cover</span>
+          <span class={`value${d.thinCover ? ' warn' : ''}`}>
+            {d.coverCm.toFixed(0)}
+            <span class="unit"> cm{d.thinCover ? ' · thin' : ''}</span>
+          </span>
+        </div>
+        <div class="divider" />
+        <Row label="Air" value={d.tempC.toFixed(1)} unit="°C" />
+        <Row label="Wet-bulb" value={d.wetBulbC.toFixed(1)} unit="°C" />
+        <Row label="Wind" value={d.windMs.toFixed(0)} unit="m/s" />
         <Row label="Altitude" value={d.altitudeM.toFixed(0)} unit="m" />
       </div>
 
@@ -194,7 +207,9 @@ export function Hud() {
           <span class="money" data-testid="money">
             {formatMoney(d.money)}
           </span>
-          <span class="label">{d.mode === 'sandbox' ? 'Sandbox' : 'Career'}</span>
+          <span class="label" data-testid="clock">
+            {d.clock}
+          </span>
         </div>
         <div class="runs">
           {d.runs.map((run) => (
@@ -247,6 +262,7 @@ export function Hud() {
 
       <GaragePanel />
       <LiftsPanel />
+      <SnowmakingPanel />
     </>
   );
 }

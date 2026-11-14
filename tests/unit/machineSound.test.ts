@@ -19,7 +19,7 @@ beforeAll(async () => {
   g.registerProcessor = (_name: string, cls: new () => Processor) => {
     Machine = cls;
   };
-  await import('../../src/game/sound/machineWorklet.js');
+  await import('../../public/sound/machineWorklet.js');
 });
 
 const DEFAULTS: Params = {

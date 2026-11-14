@@ -670,3 +670,11 @@ button.danger {
 button.danger:hover:not(:disabled) {
   background: rgba(239, 107, 107, 0.3);
 }
+
+.mode-buttons {
+  display: flex;
+  gap: 4px;
+}
+.mode-buttons button {
+  min-width: 56px;
+}

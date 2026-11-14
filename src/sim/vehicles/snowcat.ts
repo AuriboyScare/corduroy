@@ -708,7 +708,11 @@ export class Snowcat {
         const i = snow.grid.nearest(x, z);
         const ix = i % snow.grid.n;
         const iz = (i - ix) / snow.grid.n;
-        if (Math.abs((ix * cell - cx) * ax + (iz * cell - cz) * az) <= half) snow.till(i, q);
+        if (Math.abs((ix * cell - cx) * ax + (iz * cell - cz) * az) <= half) {
+          // Thin cover limits the finish however well the machine is driven.
+          const cover = snow.coverQuality(i);
+          if (cover > 0) snow.till(i, Math.max(1, Math.round(q * cover)));
+        }
       }
     }
   }

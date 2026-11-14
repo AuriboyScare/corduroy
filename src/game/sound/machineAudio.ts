@@ -1,7 +1,6 @@
 import type { Camera } from 'three/webgpu';
 import { Vector3 } from 'three/webgpu';
 import type { Snowcat, SnowcatInput } from '../../sim/vehicles/snowcat';
-import workletUrl from './machineWorklet.js?url';
 
 /** What the sound needs from the scene each frame, beyond the machine itself. */
 export interface ListenerState {
@@ -90,7 +89,8 @@ export class MachineAudio {
   private async build(): Promise<void> {
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     this.ctx = ctx;
-    await ctx.audioWorklet.addModule(workletUrl);
+    // Served as-is from public/: the dev server's module handling breaks worklet registration.
+    await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}sound/machineWorklet.js`);
     const node = new AudioWorkletNode(ctx, 'corduroy-machine', {
       numberOfInputs: 0,
       numberOfOutputs: 4,

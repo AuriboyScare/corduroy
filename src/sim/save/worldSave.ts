@@ -1,11 +1,13 @@
 import { CAREER_START_LIFTS, type GameMode, type OwnedMachine } from '../career';
-import { LIFT_PLANS } from '../resort/layout';
+import { LIFT_PLANS, RUN_PLANS } from '../resort/layout';
+import type { GunMode } from '../snowmaking';
+import { START_HOUR } from '../weather';
 import { Snowpack, TILE_CELLS, TILE_M } from '../snow/snowpack';
 import { generateMountain } from '../terrain/mountain';
 import { World } from '../world';
 
 /** Version of the world data inside a save. Bump it and add a migration when the shape changes. */
-export const WORLD_SAVE_VERSION = 2;
+export const WORLD_SAVE_VERSION = 3;
 
 interface MachineState {
   uid: number;
@@ -41,6 +43,9 @@ export interface WorldMeta {
   /** Built lifts and their moving state. Added in version 2. */
   lifts: { id: string; state: number[] }[];
   pendingTickets: number;
+  /** Added in version 3: game clock, snowmaking per run, and money owed for it. */
+  clockS: number;
+  snowmaking: { installed: boolean[]; mode: GunMode[]; pendingCost: number; spent: number };
 }
 
 /** Everything needed to rebuild a world: JSON metadata and binary snow data. */
@@ -195,6 +200,13 @@ export function captureWorld(world: World): WorldSnapshot {
         .filter((l) => career.lifts.has(l.line.id))
         .map((l) => ({ id: l.line.id, state: l.captureState() })),
       pendingTickets: world.pendingTickets,
+      clockS: world.weather.clockS,
+      snowmaking: {
+        installed: [...world.snowmaking.installed],
+        mode: [...world.snowmaking.mode],
+        pendingCost: world.snowmaking.pendingCost,
+        spent: world.snowmakingSpent,
+      },
     },
     cells: encodeCells(snow),
     surface: encodeSurface(snow),
@@ -266,6 +278,12 @@ export function restoreWorld(snapshot: WorldSnapshot): World {
   world.pendingLabel = meta.pendingLabel;
   snow.groomCredit.set(meta.groomCredit);
   world.pendingTickets = meta.pendingTickets;
+  world.weather.clockS = meta.clockS;
+  meta.snowmaking.installed.forEach((on, r) => (world.snowmaking.installed[r] = on));
+  meta.snowmaking.mode.forEach((mode, r) => (world.snowmaking.mode[r] = mode));
+  world.snowmaking.pendingCost = meta.snowmaking.pendingCost;
+  world.snowmakingSpent = meta.snowmaking.spent;
+  world.refreshCover();
   for (const saved of meta.lifts) {
     if (saved.state.length > 0) world.liftById(saved.id)?.restoreState(saved.state);
   }
@@ -279,6 +297,20 @@ function migrate(meta: WorldMeta): WorldMeta {
     // Version 1 had no lifts: give the save the lifts a new game of its mode starts with.
     const lifts = m.mode === 'sandbox' ? LIFT_PLANS.map((p) => p.id) : CAREER_START_LIFTS;
     m = { ...m, version: 2, lifts: lifts.map((id) => ({ id, state: [] })), pendingTickets: 0 };
+  }
+  if (m.version === 2) {
+    // Version 2 had no weather or snowmaking: start the clock at the usual hour, no guns.
+    m = {
+      ...m,
+      version: 3,
+      clockS: START_HOUR * 3600,
+      snowmaking: {
+        installed: RUN_PLANS.map(() => false),
+        mode: RUN_PLANS.map((): GunMode => 'auto'),
+        pendingCost: 0,
+        spent: 0,
+      },
+    };
   }
   if (m.version !== WORLD_SAVE_VERSION) throw new Error(`unsupported world save version ${m.version}`);
   return m;

@@ -68,12 +68,26 @@ describe('lift operations', () => {
     };
     const ungroomed = earned(false, false);
     const groomed = earned(true, false);
-    // 960 riders an hour at a fifth of capacity, $1.10 each, for a minute: about $3.50.
-    expect(ungroomed).toBeGreaterThan(2);
+    // 960 riders an hour at a fifth of capacity, $1.10 each, cut further by the nursery's thin
+    // natural cover: about a dollar a minute.
+    expect(ungroomed).toBeGreaterThanOrEqual(1);
     expect(ungroomed).toBeLessThan(6);
     expect(groomed).toBeGreaterThan(ungroomed * 3.5);
     expect(earned(false, true)).toBe(0);
   }, 60_000);
+
+  it('fills lifts better once their runs have good cover', () => {
+    const world = fresh();
+    const lift = world.liftById('nursery-tow')!;
+    const thin = world.liftUse(lift);
+    const nursery = mountain.runs.findIndex((r) => r.id === 'nursery');
+    expect(world.runCover[nursery]).toBeLessThan(0.5);
+    for (let i = 0; i < mountain.grid.count; i++)
+      if (mountain.runOf[i] === nursery + 1) world.snow.base[i] = 0.6;
+    world.refreshCover();
+    expect(world.runCover[nursery]).toBe(1);
+    expect(world.liftUse(lift)).toBeGreaterThan(thin * 2);
+  }, 30_000);
 
   it('saves and restores lifts exactly, and upgrades version 1 saves', () => {
     const world = fresh('sandbox');

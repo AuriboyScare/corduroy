@@ -38,6 +38,8 @@ export const POWDER: ParticleKind = {
   opacity: 0.35,
   settles: false,
 };
+/** Snow-gun mist: fine droplets freezing as they fall, carried by the wind. */
+export const MIST: ParticleKind = { lift: 9.81 * 0.82, drag: 0.9, grow: 1.1, opacity: 0.4, settles: false };
 export const SMOKE: ParticleKind = {
   lift: GRAVITY * 1.06,
   drag: 1.2,

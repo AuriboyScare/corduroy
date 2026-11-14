@@ -16,6 +16,8 @@ import {
 } from './career';
 import { fail, OK, type Command, type CommandResult } from './commands';
 import { Lift } from './lifts/lift';
+import { Snowmaking } from './snowmaking';
+import { Weather } from './weather';
 import { effectiveSpec, machineModel, MACHINE_MODELS, upgradePrice } from './machines/catalog';
 import type { Snowpack } from './snow/snowpack';
 import { TREE_STRIDE, type Mountain } from './terrain/mountain';
@@ -114,6 +116,14 @@ export class World {
   readonly lifts: Lift[];
   /** Ticket money owed but below a dollar. */
   pendingTickets = 0;
+  /** Spent on snowmaking water and power, lifetime. */
+  snowmakingSpent = 0;
+  readonly weather: Weather;
+  readonly snowmaking: Snowmaking;
+  /** Per run: share of its cells with enough cover to ski and groom well, refreshed every payout. */
+  readonly runCover: Float64Array;
+  /** Per run: the grid cells that belong to it. */
+  private readonly runCells: Int32Array[];
   /** Index into machines of the one the player drives. */
   activeIndex = 0;
   /** Fixed step length, s. */
@@ -141,6 +151,22 @@ export class World {
     this.credit = new Float64Array(mountain.sections.length + 1);
     this.sectionBonusPaid = new Uint8Array(mountain.sections.length);
     this.runBonusPaid = new Uint8Array(mountain.runs.length);
+    this.weather = new Weather(
+      mountain.seed,
+      snow.surfaceAt(mountain.depot.x, mountain.depot.z),
+      mountain.datumAltitudeM,
+    );
+    this.snowmaking = new Snowmaking(mountain, snow);
+    const counts = mountain.runs.map(() => 0);
+    for (let i = 0; i < mountain.runOf.length; i++) if (mountain.runOf[i]) counts[mountain.runOf[i]! - 1]!++;
+    this.runCells = counts.map((c) => new Int32Array(c));
+    const fill = mountain.runs.map(() => 0);
+    for (let i = 0; i < mountain.runOf.length; i++) {
+      const r = mountain.runOf[i]!;
+      if (r) this.runCells[r - 1]![fill[r - 1]!++] = i;
+    }
+    this.runCover = new Float64Array(mountain.runs.length);
+    this.refreshCover();
     this.lifts = mountain.lifts.map((line) => new Lift(line, snow));
     for (const id of options.lifts ??
       (mode === 'sandbox' ? mountain.lifts.map((l) => l.id) : CAREER_START_LIFTS)) {
@@ -176,6 +202,8 @@ export class World {
       );
     }
     for (const lift of this.lifts) if (this.career.lifts.has(lift.line.id)) lift.step(this.stepSeconds);
+    this.weather.advance(this.stepSeconds);
+    this.snowmaking.step(this.stepSeconds, this.weather);
     this.stepCount++;
     if (this.stepCount % PAYOUT_INTERVAL_STEPS === 0) this.payOut();
   }
@@ -253,6 +281,22 @@ export class World {
         else lift.speedSetting = Math.max(0.25, Math.min(1, command.speed ?? 1));
         return OK;
       }
+      case 'installSnowmaking': {
+        const run = this.mountain.runs.findIndex((r) => r.id === command.run);
+        if (run < 0) return fail('Unknown run.');
+        if (this.snowmaking.installed[run]) return fail('That run already has snowmaking.');
+        const price = this.snowmaking.price(run);
+        if (!career.canAfford(price)) return fail(`You need $${price.toLocaleString('en-US')}.`);
+        career.spend(price);
+        this.snowmaking.installed[run] = true;
+        return OK;
+      }
+      case 'snowmakingMode': {
+        const run = this.mountain.runs.findIndex((r) => r.id === command.run);
+        if (run < 0 || !this.snowmaking.installed[run]) return fail('That run has no snowmaking.');
+        this.snowmaking.mode[run] = command.mode;
+        return OK;
+      }
       case 'switchMachine': {
         const index = this.machines.findIndex((m) => m.owned.uid === command.machine);
         if (index < 0) return fail('Unknown machine.');
@@ -290,13 +334,26 @@ export class World {
       .filter((r) => r >= 0);
     const groomed =
       served.length > 0 ? served.reduce((sum, r) => sum + this.runGroomedFraction(r), 0) / served.length : 0;
-    return LIFT_USE_UNGROOMED + (LIFT_USE_GROOMED - LIFT_USE_UNGROOMED) * groomed;
+    const cover =
+      served.length > 0 ? served.reduce((sum, r) => sum + this.runCover[r]!, 0) / served.length : 0;
+    // Riders come for grooming, but bare, stony stretches keep many of them away.
+    return (LIFT_USE_UNGROOMED + (LIFT_USE_GROOMED - LIFT_USE_UNGROOMED) * groomed) * (0.3 + 0.7 * cover);
   }
 
   /** Riders per hour a built lift is carrying right now. */
   liftRidersPerHour(lift: Lift): number {
     if (!this.career.lifts.has(lift.line.id)) return 0;
     return lift.capacityPerHour * (lift.speedMs / lift.type.lineSpeedMs) * this.liftUse(lift);
+  }
+
+  /** Recomputes each run's share of well-covered cells. */
+  refreshCover(): void {
+    for (let r = 0; r < this.runCells.length; r++) {
+      const cells = this.runCells[r]!;
+      let good = 0;
+      for (let k = 0; k < cells.length; k++) if (this.snow.coverQuality(cells[k]!) >= 0.99) good++;
+      this.runCover[r] = cells.length > 0 ? good / cells.length : 0;
+    }
   }
 
   /** The hook point of a named anchor (the ring on top of its post). */
@@ -360,6 +417,14 @@ export class World {
       this.events.push({ amount: whole, label: this.pendingLabel });
       this.pendingPay -= whole;
     }
+
+    // Snowmaking: water and power.
+    const snowCost = this.snowmaking.takeCost();
+    if (snowCost > 0) {
+      career.spend(snowCost);
+      this.snowmakingSpent += snowCost;
+    }
+    if (this.stepCount % (PAYOUT_INTERVAL_STEPS * 4) === 0) this.refreshCover();
 
     // Lift tickets for the riders carried since the last payout.
     const interval = PAYOUT_INTERVAL_STEPS * this.stepSeconds;
