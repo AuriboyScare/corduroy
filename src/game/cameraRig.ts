@@ -30,6 +30,8 @@ export class CameraRig {
   freePitch = -0.2;
 
   private readonly q = new Quaternion();
+  /** Operator's eye position in the driven machine's body coordinates, set from its model. */
+  readonly cabEye = new Vector3(0, 1.18, 1.0);
   private readonly q2 = new Quaternion();
   private readonly v = new Vector3();
   private initialised = false;
@@ -87,7 +89,7 @@ export class CameraRig {
     } else if (this.mode === 'cab') {
       this.cabYaw = Math.max(-2.4, Math.min(2.4, this.cabYaw - input.dragX * sensitivity));
       this.cabPitch = Math.max(-0.9, Math.min(0.6, this.cabPitch - input.dragY * sensitivity));
-      b.toWorld(0, 1.18, 1.0);
+      b.toWorld(this.cabEye.x, this.cabEye.y, this.cabEye.z);
       camera.position.set(b.px + b.ox, b.py + b.oy, b.pz + b.oz);
       // Cameras look down -z; the machine faces +z.
       this.q.set(b.qx, b.qy, b.qz, b.qw);
