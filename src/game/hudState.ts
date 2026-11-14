@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import type { SaveSummary } from '../platform/saveFile';
 import type { GameMode } from '../sim/career';
-import type { Difficulty } from '../sim/resort/layout';
+import type { Difficulty, LiftKind } from '../sim/resort/layout';
 import type { CameraMode } from './cameraRig';
 
 export interface RunStatus {
@@ -61,6 +61,10 @@ export interface HudData {
   camera: CameraMode;
   fps: number;
   machine: string;
+  /** Machine model id, for its silhouette. */
+  modelId: string;
+  /** The sun is down. */
+  night: boolean;
 }
 
 export const hud = signal<HudData | null>(null);
@@ -91,12 +95,22 @@ export interface Notice {
 }
 export const notices = signal<Notice[]>([]);
 
+/** Headline numbers for a machine, after any upgrades. */
+export interface MachineSpecs {
+  powerKw: number;
+  tillerM: number;
+  bladeM: number;
+  topKmh: number;
+  winchKn: number;
+}
+
 export interface FleetEntry {
   uid: number;
   name: string;
   modelId: string;
   driving: boolean;
   atGarage: boolean;
+  specs: MachineSpecs;
   upgrades: {
     id: string;
     name: string;
@@ -112,7 +126,7 @@ export interface DealerEntry {
   name: string;
   price: number;
   description: string;
-  stats: string;
+  specs: MachineSpecs;
   owned: number;
 }
 
@@ -153,6 +167,7 @@ export const formatMoney = (amount: number): string =>
 export interface LiftEntry {
   id: string;
   name: string;
+  type: LiftKind;
   kind: string;
   built: boolean;
   price: number;

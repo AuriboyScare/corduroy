@@ -194,6 +194,52 @@ test.describe('on a GPU', () => {
     await expect(page.getByTestId('money')).toHaveText('$21,160');
   });
 
+  test('browser: lift and snowmaking consoles work their controls', async ({ page }) => {
+    await page.goto('/?debug=1&mode=career');
+    await gameReady(page);
+
+    await page.keyboard.press('KeyL');
+    const tow = page.getByTestId('lift-nursery-tow');
+    await expect(tow).toContainText('Running');
+    await tow.getByRole('button', { name: 'Emergency stop' }).click();
+    await expect(tow).toContainText('Emergency stop');
+    await expect(tow.locator('.lamp-alarm')).toHaveCount(1);
+    await expect(tow.getByRole('button', { name: 'Emergency stop' })).toBeDisabled();
+    // Clicking outside the panel closes it.
+    await page.mouse.click(8, 8);
+    await expect(page.getByTestId('lifts')).toHaveCount(0);
+
+    await page.evaluate(() => {
+      const game = window.__corduroy!.game!;
+      game.world.career.money = 10_000;
+    });
+    await page.keyboard.press('KeyN');
+    const nursery = page.getByTestId('snowmaking-nursery');
+    await nursery.getByRole('button', { name: /Install for/ }).click();
+    const on = nursery.getByRole('button', { name: 'On', exact: true });
+    await on.click();
+    await expect(on).toHaveAttribute('aria-pressed', 'true');
+    await expect(nursery.getByRole('button', { name: 'Auto' })).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('snowmaking')).toHaveCount(0);
+  });
+
+  test('browser: the HUD shows night on the clock and a controls hint when help is hidden', async ({
+    page,
+  }) => {
+    await page.goto('/?debug=1&mode=career');
+    await gameReady(page);
+    await expect(page.locator('.clock')).not.toHaveClass(/night/);
+    await page.evaluate(() => {
+      window.__corduroy!.game!.world.weather.clockS += 13 * 3600;
+    });
+    await expect(page.locator('.clock')).toHaveClass(/night/);
+    await expect(page.getByTestId('help')).toBeVisible();
+    await page.keyboard.press('KeyH');
+    await expect(page.getByTestId('help')).toHaveCount(0);
+    await expect(page.locator('.help-hint')).toContainText('Controls');
+  });
+
   test('browser: a saved career continues where it left off', async ({ page }) => {
     await page.goto('/?debug=1&mode=career');
     await gameReady(page);

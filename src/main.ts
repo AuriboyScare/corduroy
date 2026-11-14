@@ -1,3 +1,9 @@
+import '@fontsource/barlow/latin-400.css';
+import '@fontsource/barlow/latin-500.css';
+import '@fontsource/barlow/latin-600.css';
+import '@fontsource/barlow-condensed/latin-500.css';
+import '@fontsource/barlow-condensed/latin-600.css';
+import '@fontsource/barlow-condensed/latin-700.css';
 import { h, render } from 'preact';
 import { startGame, type GameDebug } from './game/game';
 import { loadingMessage } from './game/hudState';
