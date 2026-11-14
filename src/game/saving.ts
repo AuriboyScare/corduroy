@@ -8,7 +8,8 @@ import type { World } from '../sim/world';
 export const AUTOSAVE_INTERVAL_MS = 120_000;
 
 export interface SaveStatus {
-  state: 'idle' | 'saving' | 'error' | 'unavailable';
+  /** 'remote': a joined player's game, which the host saves. */
+  state: 'idle' | 'saving' | 'error' | 'unavailable' | 'remote';
   /** performance.now() of the last successful save. */
   lastSavedAt: number | null;
   message: string | null;

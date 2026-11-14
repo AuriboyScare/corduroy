@@ -29,6 +29,7 @@
     "@preact/signals": "2.11.4",
     "preact": "11.2.0",
     "three": "0.187.0",
+    "trystero": "0.26.0",
     "ws": "8.22.2"
   },
   "devDependencies": {

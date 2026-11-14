@@ -17,6 +17,9 @@ export class Input {
   constructor(target: HTMLElement) {
     window.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Typing in a text field (a name, a game code) is not driving.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (!this.down.has(e.code)) this.pressed.set(e.code, (this.pressed.get(e.code) ?? 0) + 1);
       this.down.add(e.code);
       // F5 is the save key; stop it reloading the page.

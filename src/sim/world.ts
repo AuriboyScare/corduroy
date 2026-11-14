@@ -192,6 +192,7 @@ export class World {
     return this.machines[this.activeIndex]!;
   }
 
+  /** One fixed step with the player driving the active machine; every other machine idles. */
   step(input: SnowcatInput): void {
     for (let k = 0; k < this.machines.length; k++) {
       this.machines[k]!.vehicle.step(
@@ -201,6 +202,18 @@ export class World {
         this.trees,
       );
     }
+    this.stepResort();
+  }
+
+  /** One fixed step with each listed machine (by uid) driven by its own input; the rest idle. */
+  stepInputs(inputs: ReadonlyMap<number, SnowcatInput>): void {
+    for (const machine of this.machines) {
+      machine.vehicle.step(this.stepSeconds, inputs.get(machine.owned.uid) ?? IDLE, this.snow, this.trees);
+    }
+    this.stepResort();
+  }
+
+  private stepResort(): void {
     for (const lift of this.lifts) if (this.career.lifts.has(lift.line.id)) lift.step(this.stepSeconds);
     this.weather.advance(this.stepSeconds);
     this.snowmaking.step(this.stepSeconds, this.weather);

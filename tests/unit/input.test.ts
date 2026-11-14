@@ -10,6 +10,17 @@ const press = (code: string) => {
 };
 
 describe('Input', () => {
+  it('ignores keys typed into a text field', () => {
+    const input = new Input(document.createElement('canvas'));
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG', bubbles: true }));
+    expect(input.wasPressed('KeyG')).toBe(false);
+    field.remove();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG' }));
+    expect(input.wasPressed('KeyG')).toBe(true);
+  });
+
   it('keeps two presses that land in the same frame', () => {
     const input = new Input(document.createElement('canvas'));
     press('KeyC');

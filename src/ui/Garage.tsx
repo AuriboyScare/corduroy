@@ -123,9 +123,10 @@ export function GaragePanel() {
               {!selected.driving && (
                 <button
                   class="primary"
-                  disabled={!workshopOpen}
+                  disabled={!workshopOpen || selected.driver !== null}
                   onClick={() => garageActions.drive(selected.uid)}
                   data-testid="drive"
+                  title={selected.driver ? `${selected.driver} is driving it` : undefined}
                 >
                   Drive this machine
                 </button>

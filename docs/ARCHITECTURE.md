@@ -26,3 +26,13 @@ The full design is in [MASTER_PLAN.md](MASTER_PLAN.md). This file records what i
 ## Cross-origin isolation
 
 SharedArrayBuffer is how the sim worker shares terrain and snow grids with the renderer. It needs `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on every response. Vite dev and preview, and the Electron `app://` handler, all send them. Any future host server must too.
+
+## Multiplayer
+
+Host-authoritative deterministic lockstep, in `src/net`:
+
+- **Frames.** The host steps the shared world with `HostSession.step`. Each step builds a `Frame`: every seated player's quantised input (8-bit per axis, so every copy steps with the same values) and any commands or seat changes, then applies it with `applyFrame`. Clients apply the same frames with the same function, so their worlds stay identical. The host never waits for a client: late input is held, and input older than 2 s idles that machine.
+- **Joining.** A joining player gets the world as save-file bytes, captured at a step boundary, plus the seat table at that step. Frames follow from the next step. A player too far behind (more than 20 s of history) is sent a fresh snapshot.
+- **Checks.** Every 120 steps the host sends `worldHash`. A client whose own hash differs is told its copy fell out of step and offered a rejoin. In the handshake, `mathSignature()` fingerprints the engine's `Math` functions, and players whose engines differ are refused with an explanation.
+- **Seats.** `Seats` (who drives which machine) changes only through frame events, so every copy agrees. Changing machine is a seat change with the same rules as single player.
+- **Transports.** `TrysteroTransport` (online: Nostr relays for matchmaking, WebRTC data channels, room code as the handshake password), `BroadcastTransport` (tabs in one browser, `?net=local`, used by the browser tests), and `LoopbackHub` (a simulated network with latency for the integration tests).
