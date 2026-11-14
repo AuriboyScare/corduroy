@@ -1,4 +1,4 @@
-import { Group } from 'three/webgpu';
+import { Group, type Vector3 } from 'three/webgpu';
 import { machineModel } from '../sim/machines/catalog';
 import type { SnowcatSpec } from '../sim/vehicles/snowcat';
 import type { Machine } from '../sim/world';
@@ -13,22 +13,49 @@ const PAINT: Record<string, number> = {
 
 interface View {
   model: SnowcatModel;
-  /** The spec the view was built from; a new spec object means an upgrade changed the machine. */
-  spec: SnowcatSpec;
+  /** What the model was built from; when it changes, an upgrade changed how the machine looks. */
+  look: string;
+}
+
+/** Upgrades that change the model as well as the machine. */
+const VISIBLE_UPGRADES = ['engine', 'tracks', 'hydraulics', 'finisher', 'lights'] as const;
+
+/** State of the scene the models need each frame. */
+export interface FleetFrame {
+  /** Index of the machine being driven. */
+  active: number;
+  camera: Vector3;
+  /** Lamp level for the driven machine, 0 (day) to 1 (night). */
+  lights: number;
+  dt: number;
+  /** Engine speed of the driven machine, for its dashboard. */
+  rpm: number;
+}
+
+function lookKey(spec: SnowcatSpec, levels: Readonly<Record<string, number>>): string {
+  return [
+    spec.bladeHalfWidthM,
+    spec.tillerHalfWidthM,
+    spec.winchPullN,
+    ...VISIBLE_UPGRADES.map((id) => levels[id] ?? 0),
+  ].join('|');
 }
 
 /** Keeps one model per machine in the fleet, rebuilt when an upgrade changes its implements. */
 export class FleetView {
   readonly group = new Group();
+  /** Models built so far, for tests: an upgrade that shows on the machine rebuilds its model. */
+  builds = 0;
   private readonly views = new Map<number, View>();
 
   /** Poses every machine; adds models for new machines and rebuilds upgraded ones. */
-  sync(machines: readonly Machine[]): void {
-    for (const machine of machines) {
+  sync(machines: readonly Machine[], frame: FleetFrame): void {
+    machines.forEach((machine, index) => {
       const uid = machine.owned.uid;
       const spec = machine.vehicle.spec;
+      const key = lookKey(spec, machine.owned.levels);
       let view = this.views.get(uid);
-      if (view && view.spec !== spec && this.looksDifferent(view.spec, spec)) {
+      if (view && view.look !== key) {
         this.group.remove(view.model.group);
         view.model.dispose();
         view = undefined;
@@ -36,19 +63,28 @@ export class FleetView {
       if (!view) {
         const model = new SnowcatModel({
           name: spec.name,
+          model: machine.owned.model,
           paint: PAINT[machine.owned.model] ?? 0xc22a1c,
           scale: machineModel(machine.owned.model).scale,
           bladeHalfWidthM: spec.bladeHalfWidthM,
           tillerHalfWidthM: spec.tillerHalfWidthM,
           winch: spec.winchPullN > 0,
+          levels: { ...machine.owned.levels },
         });
-        view = { model, spec };
+        this.builds++;
+        view = { model, look: key };
         this.views.set(uid, view);
         this.group.add(model.group);
       }
-      view.spec = spec;
-      view.model.sync(machine.vehicle);
-    }
+      const model = view.model;
+      const driven = index === frame.active;
+      model.sync(machine.vehicle);
+      model.setDriven(driven);
+      model.setLights(driven ? frame.lights : 0);
+      if (driven) model.updateDashboard(frame.dt, machine.vehicle, frame.rpm);
+      const b = machine.vehicle.body;
+      model.updateDetail(Math.hypot(b.px - frame.camera.x, b.py - frame.camera.y, b.pz - frame.camera.z));
+    });
   }
 
   /** Hides the cab glazing of the machine the camera sits in (null: none). */
@@ -59,13 +95,5 @@ export class FleetView {
   /** The model of one machine, for camera and winch drawing. */
   model(uid: number): SnowcatModel | undefined {
     return this.views.get(uid)?.model;
-  }
-
-  private looksDifferent(a: SnowcatSpec, b: SnowcatSpec): boolean {
-    return (
-      a.bladeHalfWidthM !== b.bladeHalfWidthM ||
-      a.tillerHalfWidthM !== b.tillerHalfWidthM ||
-      a.winchPullN !== b.winchPullN
-    );
   }
 }

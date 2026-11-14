@@ -240,6 +240,25 @@ test.describe('on a GPU', () => {
     await expect(page.locator('.help-hint')).toContainText('Controls');
   });
 
+  test('browser: upgrades that show on the machine rebuild its model; others do not', async ({ page }) => {
+    await page.goto('/?debug=1&mode=career');
+    await gameReady(page);
+    const builds = () => page.evaluate(() => window.__corduroy!.game!.modelBuilds());
+    await page.evaluate(() => {
+      window.__corduroy!.game!.world.career.money = 60_000;
+    });
+    const start = await builds();
+    await page.keyboard.press('KeyG');
+    const garage = page.getByTestId('garage');
+    await garage.getByTestId('upgrade-cruise').getByRole('button').click();
+    await expect(page.getByTestId('garage-message')).toContainText('Cruise control fitted');
+    await page.waitForTimeout(300);
+    expect(await builds()).toBe(start);
+    await garage.getByTestId('upgrade-lights').getByRole('button').click();
+    await expect(page.getByTestId('garage-message')).toContainText('Work lights fitted');
+    await expect.poll(builds).toBe(start + 1);
+  });
+
   test('browser: a saved career continues where it left off', async ({ page }) => {
     await page.goto('/?debug=1&mode=career');
     await gameReady(page);

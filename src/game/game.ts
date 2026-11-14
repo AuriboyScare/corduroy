@@ -7,6 +7,7 @@ import { createGarage } from '../render/garage';
 import { LiftsView } from '../render/liftView';
 import { SnowGunsView } from '../render/snowGunsView';
 import { MachineEffects } from '../render/machineEffects';
+import { machineDaylight } from '../render/machines/materials';
 import { Particles } from '../render/particles';
 import { createResortProps } from '../render/resortProps';
 import { createSnowMaterial } from '../render/snowMaterial';
@@ -80,6 +81,8 @@ export interface GameDebug {
   save(): Promise<boolean>;
   /** Runs simulation steps immediately, without rendering. */
   fastForward(steps: number, input: SnowcatInput): void;
+  /** Machine models built so far (each visible upgrade rebuilds one). */
+  modelBuilds(): number;
 }
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -395,6 +398,7 @@ export async function startGame({
     fastForward: (steps, stepInput) => {
       for (let i = 0; i < steps; i++) world.step(stepInput);
     },
+    modelBuilds: () => fleet.builds,
   };
 
   let lastInput: SnowcatInput = idle;
@@ -573,9 +577,19 @@ export async function startGame({
         snow.top[under]! < 0.03 ? 0.9 : Math.min(1, Math.max(0, (snow.density[under]! - 120) / 330)),
       altitudeM: mountain.datumAltitudeM + camera.position.y,
     });
-    fleet.sync(world.machines);
+    const lampLevel = Math.max(0, Math.min(1, (environment.darkness - 0.25) / 0.4));
+    machineDaylight.value = 1 - environment.darkness;
+    fleet.sync(world.machines, {
+      active: world.activeIndex,
+      camera: camera.position,
+      lights: lampLevel,
+      dt,
+      rpm: audio.engineRpm,
+    });
     winches.sync(world.machines, fleet);
-    effects.update(dt, world.cat);
+    const drivenModel = fleet.model(world.activeMachine.owned.uid);
+    if (drivenModel) rig.cabEye.copy(drivenModel.cabEye);
+    effects.update(dt, world.cat, drivenModel?.exhaust);
     liftsScene.update(world.lifts, world.career.lifts, (lift) => world.liftUse(lift));
     gunsScene.update(dt, particles, world.weather, camera.position);
     fleet.setInteriorView(rig.mode === 'cab' ? world.activeMachine.owned.uid : null);

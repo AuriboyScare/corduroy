@@ -11,7 +11,7 @@ interface Emitters {
   lastLoad: number;
 }
 
-/** Height and position of the exhaust outlet, Kestrel 420 body frame. */
+/** Exhaust outlet when the model does not say, Kestrel 420 body frame. */
 const EXHAUST = { x: -0.82, y: 1.92, z: -0.14 } as const;
 
 /**
@@ -26,7 +26,8 @@ export class MachineEffects {
     private readonly snow: Snowpack,
   ) {}
 
-  update(dt: number, cat: Snowcat): void {
+  /** `exhaust` is the model's exhaust outlet in body coordinates, metres. */
+  update(dt: number, cat: Snowcat, exhaust?: { x: number; y: number; z: number }): void {
     let e = this.state.get(cat);
     if (!e) {
       e = { tiller: 0, tracks: 0, blade: 0, exhaust: 0, lastLoad: 0 };
@@ -164,7 +165,8 @@ export class MachineEffects {
     e.exhaust += dt * (5 + 18 * load + Math.min(40, surge * 6));
     while (e.exhaust >= 1) {
       e.exhaust -= 1;
-      b.toWorld(EXHAUST.x * scale, EXHAUST.y * scale, EXHAUST.z * scale);
+      if (exhaust) b.toWorld(exhaust.x, exhaust.y, exhaust.z);
+      else b.toWorld(EXHAUST.x * scale, EXHAUST.y * scale, EXHAUST.z * scale);
       const soot = Math.min(1, 0.15 + load * 0.35 + Math.min(0.5, surge * 0.2));
       const shade = 0.75 - 0.45 * soot;
       p.emit(

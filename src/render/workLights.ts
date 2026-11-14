@@ -1,4 +1,4 @@
-import { Group, SpotLight, type Object3D } from 'three/webgpu';
+import { Group, PointLight, SpotLight, type Object3D } from 'three/webgpu';
 import type { Snowcat } from '../sim/vehicles/snowcat';
 
 /** Lamp positions in Kestrel 420 body coordinates: two forward floodlights and one over the tiller. */
@@ -18,8 +18,12 @@ const LAMPS = [
 export class WorkLights {
   readonly group = new Group();
   private readonly lights: SpotLight[] = [];
+  /** Spill from the lamps and cab back onto the machine itself, so it is not a silhouette. */
+  private readonly spill = new PointLight(0xffe9c8, 0, 9, 1.4);
 
   constructor() {
+    this.spill.castShadow = false;
+    this.group.add(this.spill);
     for (const lamp of LAMPS) {
       const light = new SpotLight(0xfff4e0, 0, 60, lamp.rear ? 1.05 : 0.42, 0.6, 1.6);
       light.castShadow = false;
@@ -33,6 +37,10 @@ export class WorkLights {
     const scale = cat.spec.bodyLengthM / 8;
     const level = cat.spec.workLights;
     const on = Math.max(0, Math.min(1, (darkness - 0.25) / 0.4));
+    b.toWorld(0, 2.6 * scale, 0.6 * scale);
+    this.spill.position.set(b.px + b.ox, b.py + b.oy, b.pz + b.oz);
+    this.spill.intensity = on * 14;
+    this.spill.visible = on > 0;
     LAMPS.forEach((lamp, k) => {
       const light = this.lights[k]!;
       b.toWorld(lamp.x * scale, lamp.y * scale, lamp.z * scale);

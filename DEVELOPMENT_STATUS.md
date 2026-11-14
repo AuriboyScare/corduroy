@@ -1,13 +1,14 @@
 # Development status
 
-Last updated: 2026-11-14 (branch `ui-theme`)
+Last updated: 2026-11-14 (branch `machine-detail`)
 
 ## Completed systems
 
-Each is covered by automated tests (96 unit and integration, 11 browser and Electron) and was checked in screenshots of the running game.
+Each is covered by automated tests (96 unit and integration, 12 browser and Electron) and was checked in screenshots of the running game.
 
 - **Resort layout**: four runs (Nursery, Long Meadow, Kestrel, Falcon Face) graded to their difficulty and split into ~150 m sections; base area; marker poles along every run; trail signs; boulders.
 - **Snowpack**: two layers on a 1 m grid; mass-conserving cutting, filling, compaction, tilling, and slumping to the angle of repose; thin natural base low down; tiller finish limited by consolidated cover depth; sparse 0.25 m surface-detail tiles.
+- **Machine models**: each Kestrel has its own build (the 260 compact with four road wheels, the 420 full-size, the 600W long and heavy with six, roof rails and a winch tower). Framed cab with separate panes, mirrors, wipers, door, steps and grab rail; light bar, beacon, headlights and tail lights that switch on at night; louvred hood with a service door and maker's mark, exhaust stack, intake, handrails; twin bogie wheels on swing arms with dampers, toothed sprockets, aluminium grousers; ribbed blade with end plates and wing rams; tiller with tine helices, hitch hoses and finisher combs; warning stickers. Paint carries grime and snow; glass reflects sky and snow. Interior with seat, joystick, steering wheel, pedals and a live dashboard screen. Engine, track, hydraulics, finisher and light upgrades are visible. Small parts drop out beyond 75 m. Wheels, cleats and rams are instanced, so the detailed models draw fewer calls than the old ones.
 - **Machines**: Kestrel 260, 420 and 600W, each with its own size, power and implements; eight upgrade types with levels that change the simulated machine (engine, tracks, tiller width, blade, hydraulics, finisher, work lights, cruise control). Power-limited hydrostatic drive; spawns square to slopes.
 - **Winch** (600W): constant tension, auto pay-out, engine load when reeling in, cable-end interlock; three anchors.
 - **Career**: money from grooming by quality and difficulty, section and run bonuses, lift tickets; garage for buying machines and upgrades and swapping machines. Sandbox mode.
